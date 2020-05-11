@@ -26,6 +26,7 @@ import org.apache.openwhisk.core.entity.size._
 import scala.annotation.tailrec
 import scala.collection.immutable
 import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.util.Try
 import java.time.Instant
@@ -76,9 +77,11 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   var prewarmStartingPoolStartTimes = immutable.Map.empty[ActorRef, Long]
   var seen = mutable.Set.empty[String]
   
-  var startedTimes = mutable.Map.empty[String, (Long, String)]
-  var coldTimes = mutable.Map.empty[String, Long]
-  var warmTimes = mutable.Map.empty[String, Long]
+  var startedTimes = mutable.Map.empty[String, (Long, String)] // container-action-key, (time, state)
+  var coldTimes = mutable.Map.empty[String, Long]  // action-key, time
+  var warmTimes = mutable.Map.empty[String, Long]  // action-key, time
+  var lastCalled = mutable.Map.empty[String, Long] // action-key, time
+  var callCount = mutable.Map.empty[String, Long] // action-key, count
 
   // If all memory slots are occupied and if there is currently no container to be removed, than the actions will be
   // buffered here to keep order of computation.
@@ -95,7 +98,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   def cost(action: ExecutableWhiskAction): Long = {
     val key = getActionKey(action)
     val c = (coldTimes get key).getOrElse(0L)
-    val w =(warmTimes get key).getOrElse(0L)
+    val w = (warmTimes get key).getOrElse(0L)
     c - w
   }
 
@@ -112,6 +115,43 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       case Some(cont) => s"${cont}-${action.namespace}/${action.name}"
       case None => s"None-${action.namespace}/${action.name}"
     }
+  }
+
+  def calcPriority(containerData: ContainerData) : Double = {
+    def size(container:Container, action:ExecutableWhiskAction):Double = {
+      action.limits.memory.megabytes
+    }
+
+    def pri(container:Container, action:ExecutableWhiskAction):Double = {
+      val key = getActionKey(action)
+      val freq = (callCount get key).getOrElse(0L)
+      (lastCalled get key).getOrElse(0L) + ((freq*cost(action))/size(container, action))
+    }
+
+    containerData match {
+      // case ContainerNotInUse() => 0 // unallocated container has no priority
+      case WarmedData(container, invocationNamespace, action, _, _, _) => return pri(container, action)
+      case WarmingColdData(_,_,_,_) => {logging.error(this, "cant remove warming cold container as it will be running something"); return 0;}
+      case WarmingData(container, invocationNamespace, action, _, _) => return pri(container, action)
+      case other => { logging.error(this, "!!!unknown type to get priority of!!!"); return 0;}
+    }
+  }
+
+  def sortOnPriorities(pool: Map[ActorRef, ContainerData]) : List[(ActorRef, ContainerData)] = {
+    var unordered = ListBuffer[(Double, (ActorRef, ContainerData))]()
+    pool.foreach{case (actor, data) =>
+      unordered += ((calcPriority(data), (actor, data)))
+    }
+    unordered.foreach{case (pri, (actor, data)) =>
+      logging.info(this, s"unordered; priority: ${pri}, data: ${data}")
+    }
+    logging.info(this, s"${unordered}")
+    var ordered = unordered.sortWith((l, r) => l._1 < r._1).to[List]
+    ordered.foreach{case (pri, (actor, data)) =>
+      logging.info(this, s"ordered; priority: ${pri}, data: ${data}")
+    }
+    for (item <- ordered) yield item._2
+    // ordered.collect {i => i._2 }
   }
 
   def logContainerStart(r: Run, containerState: String, activeActivations: Int, container: Option[Container]): Unit = {
@@ -164,7 +204,10 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                   takePrewarmContainer(r.action)
                     .map(container => (container, "prewarmed"))
                     .orElse(Some(createContainer(r.action.limits.memory.megabytes.MB), "cold"))
-                } else None)
+                } else {
+                  sortOnPriorities(freePool)
+                  None
+                })
               .orElse(
                 // Remove a container and create a new one for the given job
                 ContainerPool
@@ -218,6 +261,12 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
             seen += key
             logging.info(this, s"starting action with key ${key}, state ${containerState}")
             startedTimes += (key -> (getMilis(), containerState))
+            val actkey = getActionKey(r.action)
+            var cnt = (callCount get actkey).getOrElse(0L)
+            callCount -= actkey
+            callCount += (actkey -> (cnt+1))
+            lastCalled -= actkey
+            lastCalled += (actkey -> getMilis())
 
             actor ! r // forwards the run request to the container
             logContainerStart(r, containerState, newData.activeActivationCount, container)
@@ -469,6 +518,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   /** Removes a container and updates state accordingly. */
   def removeContainer(toDelete: ActorRef) = {
     toDelete ! Remove
+    logging.info(this, s"removing container ${toDelete}")
     freePool = freePool - toDelete
     busyPool = busyPool - toDelete
   }
@@ -481,6 +531,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
    * @return true, if there is enough space for the given amount of memory.
    */
   def hasPoolSpaceFor[A](pool: Map[A, ContainerData], memory: ByteSize): Boolean = {
+    logging.info(this, s"system/user? has allowed memory of ${poolConfig.userMemory.toMB}, poolConfig: ${poolConfig}")
     memoryConsumptionOf(pool) + memory.toMB <= poolConfig.userMemory.toMB
   }
 
