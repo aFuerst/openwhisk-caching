@@ -137,7 +137,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     }
   }
 
-  def sortOnPriorities(pool: Map[ActorRef, ContainerData]) : List[(ActorRef, ContainerData)] = {
+  def sortOnPriorities(pool: Map[ActorRef, ContainerData]) : ListBuffer[(ActorRef, ContainerData)] = {
     var unordered = ListBuffer[(Double, (ActorRef, ContainerData))]()
     pool.foreach{case (actor, data) =>
       unordered += ((calcPriority(data), (actor, data)))
@@ -146,7 +146,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       logging.info(this, s"unordered; priority: ${pri}, data: ${data}")
     }
     logging.info(this, s"${unordered}")
-    var ordered = unordered.sortWith((l, r) => l._1 < r._1).to[List]
+    var ordered = unordered.sortWith((l, r) => l._1 < r._1)//.to[List]
     ordered.foreach{case (pri, (actor, data)) =>
       logging.info(this, s"ordered; priority: ${pri}, data: ${data}")
     }
@@ -205,14 +205,13 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                     .map(container => (container, "prewarmed"))
                     .orElse(Some(createContainer(r.action.limits.memory.megabytes.MB), "cold"))
                 } else {
-                  sortOnPriorities(freePool)
                   None
                 })
               .orElse(
                 // Remove a container and create a new one for the given job
                 ContainerPool
                 // Only free up the amount, that is really needed to free up
-                  .remove(freePool, Math.min(r.action.limits.memory.megabytes, memoryConsumptionOf(freePool)).MB)
+                  .remove2Boogaloo(sortOnPriorities(freePool), Math.min(r.action.limits.memory.megabytes, memoryConsumptionOf(freePool)).MB)
                   .map(removeContainer)
                   // If the list had at least one entry, enough containers were removed to start the new container. After
                   // removing the containers, we are not interested anymore in the containers that have been removed.
@@ -571,6 +570,10 @@ object ContainerPool {
     pool.map(_._2.memoryLimit.toMB).sum
   }
 
+  protected[containerpool] def memoryConsumptionOf2Boogaloo[A](pool: ListBuffer[(A, ContainerData)]): Long = {
+    pool.map(_._2.memoryLimit.toMB).sum
+  }
+
   /**
    * Finds the best container for a given job to run on.
    *
@@ -606,6 +609,46 @@ object ContainerPool {
           case _                                                                                  => false
         }
       }
+  }
+
+  /**
+   * Finds the lowest-priority used container to remove to make space for the job passed to run.
+   * Depending on the space that has to be allocated, several containers might be removed.
+   *
+   * NOTE: This method is never called to remove an action that is in the pool already,
+   * since this would be picked up earlier in the scheduler and the container reused.
+   *
+   * @param pool a _ priority sorted_ list of free containers to remove
+   * @param memory the amount of memory that has to be freed up
+   * @return a list of containers to be removed iff found
+   */
+  @tailrec
+  protected[containerpool] def remove2Boogaloo[A](pool: ListBuffer[(A, ContainerData)],
+                                         memory: ByteSize,
+                                         toRemove: List[A] = List.empty): List[A] = {
+    // Try to find a Free container that does NOT have any active activations AND is initialized with any OTHER action
+    val freeContainers: ListBuffer[(A, ContainerData)] = pool.collect {
+      // Only warm containers will be removed. Prewarmed containers will stay always.
+      case (ref, w: WarmedData) if w.activeActivationCount == 0 =>
+        ref -> w
+    }
+
+    if (memory > 0.B && freeContainers.nonEmpty && memoryConsumptionOf2Boogaloo(freeContainers) >= memory.toMB) {
+      // Remove the lowest-priority container if:
+      // - there is more memory required
+      // - there are still containers that can be removed
+      // - there are enough free containers that can be removed
+      val (ref, data) = freeContainers.head
+      // Catch exception if remaining memory will be negative
+      val remainingMemory = Try(memory - data.memoryLimit).getOrElse(0.B)
+      remove2Boogaloo(freeContainers.drop(1), remainingMemory, toRemove ++ List(ref))
+    } else {
+      // If this is the first call: All containers are in use currently, or there is more memory needed than
+      // containers can be removed.
+      // Or, if this is one of the recursions: Enough containers are found to get the memory, that is
+      // necessary. -> Abort recursion
+      toRemove
+    }
   }
 
   /**
