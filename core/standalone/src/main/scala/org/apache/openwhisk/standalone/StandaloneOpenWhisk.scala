@@ -333,6 +333,7 @@ object StandaloneOpenWhisk extends SLF4JLogging {
   }
 
   private def setConfigProp(key: String, value: String): Unit = {
+    // logging.info(this, s"Setting configuration property ${key} to ${value}")
     setSysProp(configKey(key), value)
   }
 
