@@ -85,6 +85,9 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   var activeActionCount = mutable.Map.empty[ExecutableWhiskAction, Long] // action-key, count
   var clock : Double = 0.0;
 
+  var warmHits : Long = 0;
+  var coldHits : Long = 0;
+
   // If all memory slots are occupied and if there is currently no container to be removed, than the actions will be
   // buffered here to keep order of computation.
   // Otherwise actions with small memory-limits could block actions with large memory limits.
@@ -100,7 +103,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   def cost(action: ExecutableWhiskAction): Long = {
     val c = (coldTimes get action).getOrElse(0L)
     val w = (warmTimes get action).getOrElse(0L)
-    logging.info(this, s"cost of action ${action} is ${c} - ${w} = ${c-w}")
+    // logging.info(this, s"cost of action ${action} is ${c} - ${w} = ${c-w}")
     Math.max(c - w, 0)
   }
 
@@ -188,7 +191,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
         }
         val createdContainer =
           // Is there enough space on the invoker for this action to be executed.
-          if (hasPoolSpaceFor(busyPool, r.action.limits.memory.megabytes.MB)) {
+          if (hasPoolSpaceFor(busyPool, r.action.limits.memory.megabytes.MB, "busyPool")) {
             // Schedule a job to a warm container
             ContainerPool
               .schedule(r.action, r.msg.user.namespace.name, freePool)
@@ -197,7 +200,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                 // There was no warm/warming/warmingCold container. Try to take a prewarm container or a cold container.
 
                 // Is there enough space to create a new container or do other containers have to be removed?
-                if (hasPoolSpaceFor(busyPool ++ freePool, r.action.limits.memory.megabytes.MB)) {
+                if (hasPoolSpaceFor(busyPool ++ freePool, r.action.limits.memory.megabytes.MB, "busyPool ++ freePool")) {
                   takePrewarmContainer(r.action)
                     .map(container => (container, "prewarmed"))
                     .orElse(Some(createContainer(r.action.limits.memory.megabytes.MB), "cold"))
@@ -222,7 +225,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
         createdContainer match {
           case Some(((actor, data), containerState)) =>
-            logging.info(this, s"assigning work to actor ${actor}")
+            // logging.info(this, s"assigning work to actor ${actor}")
             //increment active count before storing in pool map
             val newData = data.nextRun(r)
             val container = newData.getContainer
@@ -232,10 +235,16 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
               logging.error(this, s"invalid activation count < 1 ${newData}")
             }
             var i = (activeActionCount get r.action).getOrElse(0L)
-            logging.info(this, s"active action count for action ${r.action} is ${i}")
-            if (containerState == "cold" || containerState == "recreated")
-            {          
+            // logging.info(this, s"active action count for action ${r.action} is ${i}")
+            if (containerState == "cold" || containerState == "recreated") {          
               activeActionCount += (r.action -> (i+1))
+              coldHits += 1
+            }
+            else if (containerState == "warmed") {
+              warmHits += 1
+            }
+            else {
+              logging.error(this, s"unknown container state $containerState")
             }
             //only move to busyPool if max reached
             if (!newData.hasCapacity()) {
@@ -260,7 +269,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
               processBufferOrFeed()
             }
 
-            logging.info(this, s"starting action ${r.action}, state ${containerState}")
+            logging.info(this, s"starting action ${r.action}, state ${containerState}, cold hits: $coldHits, warm hits: $warmHits")
             var cnt = (callCount get r.action).getOrElse(0L)
             callCount -= r.action
             callCount += (r.action -> (cnt+1))
@@ -304,7 +313,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
     // Container is free to take more work
     case NeedWork(warmData: WarmedData) =>
-      logging.info(this, s"work completed sender: ${sender}, warmData: ${warmData}")
+      // logging.info(this, s"work completed sender: ${sender}, warmData: ${warmData}")
       val oldData = freePool.get(sender()).getOrElse(busyPool(sender()))
       val newData =
         warmData.copy(lastUsed = oldData.lastUsed, activeActivationCount = oldData.activeActivationCount - 1)
@@ -321,13 +330,13 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
             {
               val old = (warmTimes get warmData.action).getOrElse(0L)
               warmTimes += (warmData.action -> Math.max(old, (now - startTime)))
-              logging.info(this, s"Warm action ${warmData.action} finished in ${now - startTime}")
+              // logging.info(this, s"Warm action ${warmData.action} finished in ${now - startTime}")
             }
             else
             {
               val old = (coldTimes get warmData.action).getOrElse(0L)
               coldTimes += (warmData.action -> Math.max(old, (now - startTime)))
-              logging.info(this, s"Prewarmed action ${warmData.action} finished in ${now - startTime} from state ${state}")
+              // logging.info(this, s"Prewarmed action ${warmData.action} finished in ${now - startTime} from state ${state}")
             }
           }
           case None => logging.error(this, s"Unexpected data incoming ${warmData} from sender ${sender}")
@@ -351,7 +360,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     // Container is prewarmed and ready to take work
     case NeedWork(data: PreWarmedData) =>
       // TODO: track container startup times
-      logging.info(this, s"prewarmed container arrived ${data}, ${sender}")
+      // logging.info(this, s"prewarmed container arrived ${data}, ${sender}")
       prewarmStartingPool = prewarmStartingPool - sender()
       prewarmedPool = prewarmedPool + (sender() -> data)
 
@@ -443,7 +452,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     val data = MemoryData(memoryLimit)
     freePool = freePool + (ref -> data)
     val after = System.currentTimeMillis()
-    logging.info(this, s"Container created at ${before} finished at ${after} took ${after - before} ms")
+    // logging.info(this, s"Container created at ${before} finished at ${after} took ${after - before} ms")
     ref -> data
   }
 
@@ -453,7 +462,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
     val newContainer = childFactory(context)
     prewarmStartingPool = prewarmStartingPool + (newContainer -> (exec.kind, memoryLimit))
     val after = System.currentTimeMillis()
-    logging.info(this, s"Container prewarm created at ${before} finished at ${after} took ${after - before} ms")
+    // logging.info(this, s"Container prewarm created at ${before} finished at ${after} took ${after - before} ms")
     newContainer ! Start(exec, memoryLimit)
   }
 
@@ -500,10 +509,10 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
         warmTimes -= action
         coldTimes -= action
         var i = (activeActionCount get action).getOrElse(0L)
-        logging.info(this, s"active action count before removal of key ${action}: ${i}")
+        // logging.info(this, s"active action count before removal of key ${action}: ${i}")
         if (i <= 1)
         {
-          logging.info(this, s"removing ${action} from active action count and call count")
+          // logging.info(this, s"removing ${action} from active action count and call count")
           activeActionCount -= action
           callCount -= action
         }
@@ -514,9 +523,10 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       }
       case other => logging.error(this, s"unkonwn action to remove possAction:${possAction}: toDelete:${toDelete}")
     }
+    logging.info(this, s"removing container $toDelete")
     actorRunning -= toDelete._1
     toDelete._1 ! Remove
-    logging.info(this, s"removing container ${toDelete._1}")
+    // logging.info(this, s"removing container ${toDelete._1}")
     freePool = freePool - toDelete._1
     busyPool = busyPool - toDelete._1
   }
@@ -525,7 +535,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   /** Removes a container and updates state accordingly. */
   def removeContainer(toDelete: ActorRef) = {
     toDelete ! Remove
-    logging.info(this, s"removing container ${toDelete}")
+    // logging.info(this, s"removing container ${toDelete}")
     freePool = freePool - toDelete
     busyPool = busyPool - toDelete
   }
@@ -537,8 +547,8 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
    * @param memory The amount of memory to check.
    * @return true, if there is enough space for the given amount of memory.
    */
-  def hasPoolSpaceFor[A](pool: Map[A, ContainerData], memory: ByteSize): Boolean = {
-    logging.info(this, s"system/user? has allowed memory of ${poolConfig.userMemory.toMB}, poolConfig: ${poolConfig}")
+  def hasPoolSpaceFor[A](pool: Map[A, ContainerData], memory: ByteSize, poolName :String="unknown"): Boolean = {
+    logging.info(this, s"${poolName} allocated: ${memoryConsumptionOf(pool)}, adding ${memory}, max: ${poolConfig}")
     memoryConsumptionOf(pool) + memory.toMB <= poolConfig.userMemory.toMB
   }
 

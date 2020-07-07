@@ -54,13 +54,7 @@
                 "attached": {
                     "attachmentName": "codefile",
                     "attachmentType": "text/plain"
-                },
-                "stemCells": [
-                    {
-                        "count": 2,
-                        "memory": "256 MB"
-                    }
-                ]
+                }
             },
             {
                 "kind": "nodejs:12",
@@ -94,11 +88,39 @@
             },
             {
                 "kind": "python:3",
-                "default": true,
+                "default": false,
                 "image": {
                     "prefix": "openwhisk",
                     "name": "python3action",
                     "tag": "nightly"
+                },
+                "deprecated": false,
+                "attached": {
+                    "attachmentName": "codefile",
+                    "attachmentType": "text/plain"
+                }
+            },
+            {
+                "kind": "python:ai",
+                "default": true,
+                "image": {
+                    "prefix": "openwhisk",
+                    "name": "python3aiaction",
+                    "tag": "nightly"
+                },
+                "deprecated": false,
+                "attached": {
+                    "attachmentName": "codefile",
+                    "attachmentType": "text/plain"
+                }
+            },
+            {
+                "kind": "python:ai-vid",
+                "default": false,
+                "image": {
+                    "prefix": "alfuerst",
+                    "name": "wsk-python-ai-vid",
+                    "tag": "latest"
                 },
                 "deprecated": false,
                 "attached": {
