@@ -524,7 +524,7 @@ class ContainerProxy(factory: (TransactionId,
       goto(Running) using newData
 
     // container is reclaimed by the pool or it has become too old
-    case Event(StateTimeout | Remove, data: WarmedData) =>
+    case Event(Remove, data: WarmedData) => // StateTimeout | 
       rescheduleJob = true // to supress sending message to the pool and not double count
       destroyContainer(data)
   }
