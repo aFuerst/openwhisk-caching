@@ -88,6 +88,9 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   var warmHits : Long = 0;
   var coldHits : Long = 0;
 
+  var warmHitsAct = mutable.Map.empty[ExecutableWhiskAction, Long] // action-key, count
+  var coldHitsAct = mutable.Map.empty[ExecutableWhiskAction, Long] // action-key, count
+
   var priorities = mutable.Map.empty[ExecutableWhiskAction, TrackedAction] // action-key, count
 
   // If all memory slots are occupied and if there is currently no container to be removed, than the actions will be
@@ -257,13 +260,23 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
               priority_data.active += 1
               // activeActionCount += (r.action -> (i+1))
               coldHits += 1
-            }
+              val t = coldHitsAct get r.action
+              t match {
+                case Some(long) => coldHitsAct += (r.action -> (long + 1L))
+                case None => coldHitsAct += (r.action -> 1L)
+              }            }
             else if (containerState == "warmed") {
               warmHits += 1
+              val t = warmHitsAct get r.action
+              t match {
+                case Some(long) => warmHitsAct += (r.action -> (long + 1L))
+                case None => warmHitsAct += (r.action -> 1L)
+              }
             }
             else {
               logging.error(this, s"unknown container state $containerState")
             }
+            logging.info(this, s"cold hits: $coldHits, warm hits:$warmHits, cold mapits: $coldHitsAct, warm map: $warmHitsAct")
             
             //only move to busyPool if max reached
             if (!newData.hasCapacity()) {
@@ -288,7 +301,6 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
               processBufferOrFeed()
             }
 
-            logging.info(this, s"starting action ${r.action}, state ${containerState}, cold hits: $coldHits, warm hits: $warmHits")
             // var cnt = (callCount get r.action).getOrElse(0L)
             priority_data.invocations += 1
             priority_data.lastcalled = getClock()
