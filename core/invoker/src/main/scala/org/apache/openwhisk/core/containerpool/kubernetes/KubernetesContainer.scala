@@ -34,9 +34,10 @@ import org.apache.openwhisk.common.Logging
 import org.apache.openwhisk.common.TransactionId
 import org.apache.openwhisk.core.containerpool._
 import org.apache.openwhisk.core.containerpool.docker.{CompleteAfterOccurrences, OccurrencesNotFoundException}
-import org.apache.openwhisk.core.entity.ByteSize
+import org.apache.openwhisk.core.entity.{ByteSize, WhiskAction}
 import org.apache.openwhisk.core.entity.size._
 import org.apache.openwhisk.http.Messages
+import spray.json.JsObject
 
 import scala.util.Failure
 
@@ -70,20 +71,30 @@ object KubernetesContainer {
 
     for {
       container <- kubernetes.run(podName, image, memory, environment, labels).recoverWith {
-        case _ =>
-          kubernetes
-            .rm(podName)
-            .andThen {
-              case Failure(e) =>
-                log.error(this, s"Failed delete pod for '$name': ${e.getClass} - ${e.getMessage}")
-            }
-            .transformWith { _ =>
-              Future.failed(WhiskContainerStartupError(s"Failed to run container with image '${image}'."))
-            }
+        case e: KubernetesPodApiException =>
+          //apiserver call failed - this will expose a different error to users
+          cleanupFailedPod(e, podName, WhiskContainerStartupError(Messages.resourceProvisionError))
+        case e: Throwable =>
+          cleanupFailedPod(e, podName, WhiskContainerStartupError(s"Failed to run container with image '${image}'."))
       }
     } yield container
   }
-
+  private def cleanupFailedPod(e: Throwable, podName: String, failureCause: Exception)(
+    implicit kubernetes: KubernetesApi,
+    ec: ExecutionContext,
+    tid: TransactionId,
+    log: Logging) = {
+    log.info(this, s"Deleting failed pod '$podName' after: ${e.getClass} - ${e.getMessage}")
+    kubernetes
+      .rm(podName)
+      .andThen {
+        case Failure(e) =>
+          log.error(this, s"Failed delete pod for '$podName': ${e.getClass} - ${e.getMessage}")
+      }
+      .transformWith { _ =>
+        Future.failed(failureCause)
+      }
+  }
 }
 
 /**
@@ -124,6 +135,20 @@ class KubernetesContainer(protected[core] val id: ContainerId,
     super.destroy()
     portForward.foreach(_.close())
     kubernetes.rm(this)
+  }
+
+  override def initialize(initializer: JsObject,
+                          timeout: FiniteDuration,
+                          maxConcurrent: Int,
+                          entity: Option[WhiskAction] = None)(implicit transid: TransactionId): Future[Interval] = {
+    entity match {
+      case Some(e) => {
+        kubernetes
+          .addLabel(this, Map("openwhisk/action" -> e.name.toString, "openwhisk/namespace" -> e.namespace.toString))
+          .map(return super.initialize(initializer, timeout, maxConcurrent, entity))
+      }
+      case None => super.initialize(initializer, timeout, maxConcurrent, entity)
+    }
   }
 
   def logs(limit: ByteSize, waitForSentinel: Boolean)(implicit transid: TransactionId): Source[ByteString, Any] = {

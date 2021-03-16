@@ -18,18 +18,19 @@
 package org.apache.openwhisk.core.monitoring.metrics
 
 import java.lang.management.ManagementFactory
+import java.util.concurrent.atomic.AtomicReference
 
 import akka.Done
 import akka.actor.ActorSystem
 import akka.kafka.scaladsl.{Committer, Consumer}
-import akka.kafka.scaladsl.Consumer.DrainingControl
 import akka.kafka.{CommitterSettings, ConsumerSettings, Subscriptions}
 import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.Keep
+import akka.stream.scaladsl.{RestartSource, Sink}
 import javax.management.ObjectName
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import kamon.Kamon
 import kamon.metric.MeasurementUnit
+import kamon.tag.TagSet
 import org.apache.kafka.common
 import org.apache.kafka.common.MetricName
 import org.apache.openwhisk.connector.kafka.{KafkaMetricsProvider, KamonMetricsReporter}
@@ -41,7 +42,7 @@ import org.apache.openwhisk.core.entity.ActivationResponse
 import org.apache.openwhisk.core.monitoring.metrics.OpenWhiskEvents.MetricConfig
 
 trait MetricRecorder {
-  def processActivation(activation: Activation, initiatorNamespace: String, metricConfig: MetricConfig): Unit
+  def processActivation(activation: Activation, initiatorNamespace: String): Unit
   def processMetric(metric: Metric, initiatorNamespace: String): Unit
 }
 
@@ -54,6 +55,7 @@ case class EventConsumer(settings: ConsumerSettings[String, String],
   private implicit val ec: ExecutionContext = system.dispatcher
 
   //Record the rate of events received
+  private val activationNamespaceCounter = Kamon.counter("openwhisk.namespace.activations")
   private val activationCounter = Kamon.counter("openwhisk.userevents.global.activations").withoutTags()
   private val metricCounter = Kamon.counter("openwhisk.userevents.global.metric").withoutTags()
 
@@ -77,25 +79,34 @@ case class EventConsumer(settings: ConsumerSettings[String, String],
 
   def shutdown(): Future[Done] = {
     lagRecorder.cancel()
-    control.drainAndShutdown()(system.dispatcher)
+    control.get().drainAndShutdown(result)(system.dispatcher)
   }
 
-  def isRunning: Boolean = !control.isShutdown.isCompleted
+  def isRunning: Boolean = !control.get().isShutdown.isCompleted
 
-  override def metrics(): Future[Map[MetricName, common.Metric]] = control.metrics
+  override def metrics(): Future[Map[MetricName, common.Metric]] = control.get().metrics
 
-  private val committerSettings = CommitterSettings(system).withMaxBatch(20)
+  private val committerSettings = CommitterSettings(system)
+  private val control = new AtomicReference[Consumer.Control](Consumer.NoopControl)
 
-  //TODO Use RestartSource
-  private val control: DrainingControl[Done] = Consumer
-    .committableSource(updatedSettings, Subscriptions.topics(userEventTopic))
-    .map { msg =>
-      processEvent(msg.record.value())
-      msg.committableOffset
+  private val result = RestartSource
+    .onFailuresWithBackoff(
+      minBackoff = metricConfig.retry.minBackoff,
+      maxBackoff = metricConfig.retry.maxBackoff,
+      randomFactor = metricConfig.retry.randomFactor,
+      maxRestarts = metricConfig.retry.maxRestarts) { () =>
+      Consumer
+        .committableSource(updatedSettings, Subscriptions.topics(userEventTopic))
+        // this is to access to the Consumer.Control
+        // instances of the latest Kafka Consumer source
+        .mapMaterializedValue(c => control.set(c))
+        .map { msg =>
+          processEvent(msg.record.value())
+          msg.committableOffset
+        }
+        .via(Committer.flow(committerSettings))
     }
-    .toMat(Committer.sink(committerSettings))(Keep.both)
-    .mapMaterializedValue(DrainingControl.apply)
-    .run()
+    .runWith(Sink.ignore)
 
   private val lagRecorder =
     system.scheduler.schedule(10.seconds, 10.seconds)(lagGauge.update(consumerLag))
@@ -113,15 +124,22 @@ case class EventConsumer(settings: ConsumerSettings[String, String],
       .foreach { e =>
         e.body match {
           case a: Activation =>
-            recorders.foreach(_.processActivation(a, e.namespace, metricConfig))
-            updateGlobalMetrics(a)
+            // only record activation if not executed in an ignored namespace
+            if (!metricConfig.ignoredNamespaces.contains(e.namespace)) {
+              recorders.foreach(_.processActivation(a, e.namespace))
+            }
+            updateGlobalMetrics(a, e.namespace)
           case m: Metric =>
             recorders.foreach(_.processMetric(m, e.namespace))
         }
       }
   }
 
-  private def updateGlobalMetrics(a: Activation): Unit = {
+  private def updateGlobalMetrics(a: Activation, e: String): Unit = {
+    val namespaceTag: String = metricConfig.renameTags.getOrElse("namespace", "namespace")
+    val initiatorTag: String = metricConfig.renameTags.getOrElse("initiator", "initiator")
+    val tagSet = TagSet.from(Map(initiatorTag -> e, namespaceTag -> e))
+    activationNamespaceCounter.withTags(tagSet).increment()
     a.status match {
       case ActivationResponse.statusSuccess          => statusSuccess.increment()
       case ActivationResponse.statusApplicationError => statusApplicationError.increment()

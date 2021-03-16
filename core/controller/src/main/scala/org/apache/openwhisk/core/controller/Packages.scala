@@ -19,12 +19,10 @@ package org.apache.openwhisk.core.controller
 
 import scala.concurrent.Future
 import scala.util.{Failure, Success}
-
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import akka.http.scaladsl.model.StatusCodes._
 import akka.http.scaladsl.server.{RequestContext, RouteResult}
 import akka.http.scaladsl.unmarshalling.Unmarshaller
-
 import org.apache.openwhisk.common.TransactionId
 import org.apache.openwhisk.core.controller.RestApiCommons.{ListLimit, ListSkip}
 import org.apache.openwhisk.core.database.{CacheChangeNotification, DocumentTypeMismatchException, NoDocumentException}
@@ -33,6 +31,9 @@ import org.apache.openwhisk.core.entity._
 import org.apache.openwhisk.core.entity.types.EntityStore
 import org.apache.openwhisk.http.ErrorResponse.terminate
 import org.apache.openwhisk.http.Messages
+import org.apache.openwhisk.http.Messages._
+import pureconfig._
+import org.apache.openwhisk.core.ConfigKeys
 
 trait WhiskPackagesApi extends WhiskCollectionAPI with ReferencedEntities {
   services: WhiskServices =>
@@ -41,6 +42,10 @@ trait WhiskPackagesApi extends WhiskCollectionAPI with ReferencedEntities {
 
   /** Database service to CRUD packages. */
   protected val entityStore: EntityStore
+
+  /** Config flag for Execute Only for Shared Packages */
+  protected def executeOnly =
+    loadConfigOrThrow[Boolean](ConfigKeys.sharedPackageExecuteOnly)
 
   /** Notification service for cache invalidation. */
   protected implicit val cacheChangeNotification: Some[CacheChangeNotification]
@@ -112,7 +117,8 @@ trait WhiskPackagesApi extends WhiskCollectionAPI with ReferencedEntities {
   }
 
   /**
-   * Deletes package/binding. If a package, may only be deleted if there are no entities in the package.
+   * Deletes package/binding. If a package, may only be deleted if there are no entities in the package
+   * or force parameter is set to true, which will delete all contents of the package before deleting.
    *
    * Responses are one of (Code, Message)
    * - 200 WhiskPackage as JSON
@@ -121,29 +127,51 @@ trait WhiskPackagesApi extends WhiskCollectionAPI with ReferencedEntities {
    * - 500 Internal Server Error
    */
   override def remove(user: Identity, entityName: FullyQualifiedEntityName)(implicit transid: TransactionId) = {
-    deleteEntity(
-      WhiskPackage,
-      entityStore,
-      entityName.toDocId,
-      (wp: WhiskPackage) => {
-        wp.binding map {
-          // this is a binding, it is safe to remove
-          _ =>
-            Future.successful({})
-        } getOrElse {
-          // may only delete a package if all its ingredients are deleted already
-          WhiskAction
-            .listCollectionInNamespace(entityStore, wp.namespace.addPath(wp.name), skip = 0, limit = 0) flatMap {
-            case Left(list) if (list.size != 0) =>
-              Future failed {
-                RejectRequest(
-                  Conflict,
-                  s"Package not empty (contains ${list.size} ${if (list.size == 1) "entity" else "entities"})")
-              }
-            case _ => Future.successful({})
+    parameter('force ? false) { force =>
+      deleteEntity(
+        WhiskPackage,
+        entityStore,
+        entityName.toDocId,
+        (wp: WhiskPackage) => {
+          wp.binding map {
+            // this is a binding, it is safe to remove
+            _ =>
+              Future.successful({})
+          } getOrElse {
+            // may only delete a package if all its ingredients are deleted already or force flag is set
+            WhiskAction
+              .listCollectionInNamespace(
+                entityStore,
+                wp.namespace.addPath(wp.name),
+                includeDocs = true,
+                skip = 0,
+                limit = 0) flatMap {
+              case Right(list) if list.nonEmpty && force =>
+                Future sequence {
+                  list.map(action => {
+                    WhiskAction.get(
+                      entityStore,
+                      wp.fullyQualifiedName(false)
+                        .add(action.fullyQualifiedName(false).name)
+                        .toDocId) flatMap { actionWithRevision =>
+                      WhiskAction.del(entityStore, actionWithRevision.docinfo)
+                    }
+                  })
+                } flatMap { _ =>
+                  Future.successful({})
+                }
+              case Right(list) if list.nonEmpty && !force =>
+                Future failed {
+                  RejectRequest(
+                    Conflict,
+                    s"Package not empty (contains ${list.size} ${if (list.size == 1) "entity" else "entities"}). Set force param or delete package contents.")
+                }
+              case _ =>
+                Future.successful({})
+            }
           }
-        }
-      })
+        })
+    }
   }
 
   /**
@@ -157,7 +185,14 @@ trait WhiskPackagesApi extends WhiskCollectionAPI with ReferencedEntities {
    */
   override def fetch(user: Identity, entityName: FullyQualifiedEntityName, env: Option[Parameters])(
     implicit transid: TransactionId) = {
-    getEntity(WhiskPackage.get(entityStore, entityName.toDocId), Some { mergePackageWithBinding() _ })
+    if (executeOnly && user.namespace.name != entityName.namespace) {
+      val value = entityName.toString
+      terminate(Forbidden, forbiddenGetPackage(entityName.asString))
+    } else {
+      getEntity(WhiskPackage.get(entityStore, entityName.toDocId), Some {
+        mergePackageWithBinding() _
+      })
+    }
   }
 
   /**
@@ -303,9 +338,17 @@ trait WhiskPackagesApi extends WhiskCollectionAPI with ReferencedEntities {
           logging.error(this, s"unexpected package binding refers to itself: $docid")
           terminate(UnprocessableEntity, Messages.packageBindingCircularReference(b.fullyQualifiedName.toString))
         } else {
-          getEntity(WhiskPackage.get(entityStore, docid), Some {
-            mergePackageWithBinding(Some { wp }) _
-          })
+
+          /** Here's where I check package execute only case with package binding. */
+          if (executeOnly && wp.namespace.asString != b.namespace.asString) {
+            terminate(Forbidden, forbiddenGetPackageBinding(wp.name.asString))
+          } else {
+            getEntity(WhiskPackage.get(entityStore, docid), Some {
+              mergePackageWithBinding(Some {
+                wp
+              }) _
+            })
+          }
         }
     } getOrElse {
       val pkg = ref map { _ inherit wp.parameters } getOrElse wp

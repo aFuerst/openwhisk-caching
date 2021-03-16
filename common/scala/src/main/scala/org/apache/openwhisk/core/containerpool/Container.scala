@@ -30,7 +30,7 @@ import spray.json.JsObject
 import org.apache.openwhisk.common.{Logging, LoggingMarkers, TransactionId}
 import org.apache.openwhisk.core.ConfigKeys
 import org.apache.openwhisk.core.entity.ActivationResponse.{ContainerConnectionError, ContainerResponse}
-import org.apache.openwhisk.core.entity.{ActivationEntityLimit, ActivationResponse, ByteSize}
+import org.apache.openwhisk.core.entity.{ActivationEntityLimit, ActivationResponse, ByteSize, WhiskAction}
 import org.apache.openwhisk.core.entity.size._
 import org.apache.openwhisk.http.Messages
 
@@ -110,8 +110,10 @@ trait Container {
   }
 
   /** Initializes code in the container. */
-  def initialize(initializer: JsObject, timeout: FiniteDuration, maxConcurrent: Int)(
-    implicit transid: TransactionId): Future[Interval] = {
+  def initialize(initializer: JsObject,
+                 timeout: FiniteDuration,
+                 maxConcurrent: Int,
+                 entity: Option[WhiskAction] = None)(implicit transid: TransactionId): Future[Interval] = {
     val start = transid.started(
       this,
       LoggingMarkers.INVOKER_ACTIVATION_INIT,
@@ -220,12 +222,19 @@ trait Container {
   }
   private def openConnections(timeout: FiniteDuration, maxConcurrent: Int) = {
     if (Container.config.akkaClient) {
-      new AkkaContainerClient(addr.host, addr.port, timeout, ActivationEntityLimit.MAX_ACTIVATION_ENTITY_LIMIT, 1024)
+      new AkkaContainerClient(
+        addr.host,
+        addr.port,
+        timeout,
+        ActivationEntityLimit.MAX_ACTIVATION_ENTITY_LIMIT,
+        ActivationEntityLimit.MAX_ACTIVATION_ENTITY_TRUNCATION_LIMIT,
+        1024)
     } else {
       new ApacheBlockingContainerClient(
         s"${addr.host}:${addr.port}",
         timeout,
         ActivationEntityLimit.MAX_ACTIVATION_ENTITY_LIMIT,
+        ActivationEntityLimit.MAX_ACTIVATION_ENTITY_TRUNCATION_LIMIT,
         maxConcurrent)
     }
   }

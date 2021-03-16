@@ -56,7 +56,8 @@ case class WhiskActionPut(exec: Option[Exec] = None,
                           limits: Option[ActionLimitsOption] = None,
                           version: Option[SemVer] = None,
                           publish: Option[Boolean] = None,
-                          annotations: Option[Parameters] = None) {
+                          annotations: Option[Parameters] = None,
+                          delAnnotations: Option[Array[String]] = None) {
 
   protected[core] def replace(exec: Exec) = {
     WhiskActionPut(Some(exec), parameters, limits, version, publish, annotations)
@@ -347,6 +348,7 @@ case class ExecutableWhiskActionMetaData(namespace: EntityPath,
 
 object WhiskAction extends DocumentFactory[WhiskAction] with WhiskEntityQueries[WhiskAction] with DefaultJsonProtocol {
   import WhiskActivation.instantSerdes
+
   val execFieldName = "exec"
   val requireWhiskAuthHeader = "x-require-whisk-auth"
 
@@ -365,7 +367,7 @@ object WhiskAction extends DocumentFactory[WhiskAction] with WhiskEntityQueries[
     "annotations",
     "updated")
 
-  // overriden to store attached code
+  // overridden to store attached code
   override def put[A >: WhiskAction](db: ArtifactStore[A], doc: WhiskAction, old: Option[WhiskAction])(
     implicit transid: TransactionId,
     notifier: Option[CacheChangeNotification]): Future[DocInfo] = {
@@ -383,7 +385,9 @@ object WhiskAction extends DocumentFactory[WhiskAction] with WhiskEntityQueries[
       val stream = new ByteArrayInputStream(bytes)
       super.putAndAttach(
         db,
-        doc.copy(parameters = ParameterEncryption.lock(doc.parameters)).revision[WhiskAction](doc.rev),
+        doc
+          .copy(parameters = doc.parameters.lock(ParameterEncryption.singleton.default))
+          .revision[WhiskAction](doc.rev),
         attachmentUpdater,
         attachmentType,
         stream,
@@ -405,7 +409,9 @@ object WhiskAction extends DocumentFactory[WhiskAction] with WhiskEntityQueries[
         case _ =>
           super.put(
             db,
-            doc.copy(parameters = ParameterEncryption.lock(doc.parameters)).revision[WhiskAction](doc.rev),
+            doc
+              .copy(parameters = doc.parameters.lock(ParameterEncryption.singleton.default))
+              .revision[WhiskAction](doc.rev),
             old)
       }
     } match {
@@ -414,7 +420,7 @@ object WhiskAction extends DocumentFactory[WhiskAction] with WhiskEntityQueries[
     }
   }
 
-  // overriden to retrieve attached code
+  // overridden to retrieve attached code
   override def get[A >: WhiskAction](
     db: ArtifactStore[A],
     doc: DocId,
@@ -643,5 +649,5 @@ object ActionLimitsOption extends DefaultJsonProtocol {
 }
 
 object WhiskActionPut extends DefaultJsonProtocol {
-  implicit val serdes = jsonFormat6(WhiskActionPut.apply)
+  implicit val serdes = jsonFormat7(WhiskActionPut.apply)
 }

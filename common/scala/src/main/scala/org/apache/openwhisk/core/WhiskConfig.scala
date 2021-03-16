@@ -85,6 +85,10 @@ class WhiskConfig(requiredProperties: Map[String, String],
   val triggerFirePerMinuteLimit = this(WhiskConfig.triggerFirePerMinuteLimit)
   val actionSequenceLimit = this(WhiskConfig.actionSequenceMaxLimit)
   val controllerSeedNodes = this(WhiskConfig.controllerSeedNodes)
+
+  val schedulerHost = this(WhiskConfig.schedulerHost)
+  val schedulerRpcPort = this(WhiskConfig.schedulerRpcPort)
+  val schedulerAkkaPort = this(WhiskConfig.schedulerAkkaPort)
 }
 
 object WhiskConfig {
@@ -190,6 +194,10 @@ object WhiskConfig {
   val actionInvokeConcurrentLimit = "limits.actions.invokes.concurrent"
   val triggerFirePerMinuteLimit = "limits.triggers.fires.perMinute"
   val controllerSeedNodes = "akka.cluster.seed.nodes"
+
+  val schedulerHost = "whisk.scheduler.endpoints.host"
+  val schedulerRpcPort = "whisk.scheduler.endpoints.rpcPort"
+  val schedulerAkkaPort = "whisk.scheduler.endpoints.akkaPort"
 }
 
 object ConfigKeys {
@@ -248,6 +256,7 @@ object ConfigKeys {
   val containerProxy = "whisk.container-proxy"
   val containerProxyTimeouts = s"$containerProxy.timeouts"
   val containerProxyHealth = s"$containerProxy.action-health-check"
+  val containerProxyActivationErrorLogs = s"$containerProxy.log-activation-errors"
 
   val s3 = "whisk.s3"
   val query = "whisk.query-limit"
@@ -256,6 +265,10 @@ object ConfigKeys {
   val controller = s"whisk.controller"
   val controllerActivation = s"$controller.activation"
 
+  val etcd = "whisk.etcd"
+  val etcdLeaseTimeout = "whisk.etcd.lease.timeout"
+  val etcdPoolThreads = "whisk.etcd.pool.threads"
+
   val activationStore = "whisk.activation-store"
   val elasticSearchActivationStore = s"$activationStore.elasticsearch"
   val activationStoreWithFileStorage = s"$activationStore.with-file-storage"
@@ -263,7 +276,10 @@ object ConfigKeys {
   val metrics = "whisk.metrics"
   val featureFlags = "whisk.feature-flags"
 
+  val durationChecker = s"whisk.duration-checker"
+
   val whiskConfig = "whisk.config"
+  val sharedPackageExecuteOnly = s"whisk.shared-packages-execute-only"
   val swaggerUi = "whisk.swagger-ui"
 
   val disableStoreResult = s"$activation.disable-store-result"
@@ -272,4 +288,10 @@ object ConfigKeys {
   val apacheClientConfig = "whisk.apache-client"
 
   val parameterStorage = "whisk.parameter-storage"
+
+  val azBlob = "whisk.azure-blob"
+
+  val schedulerMaxPeek = "whisk.scheduler.max-peek"
+
+  val whiskClusterName = "whisk.cluster.name"
 }

@@ -81,7 +81,7 @@ class SchedulerTests extends FlatSpec with Matchers with WskActorSystem with Str
     callCount shouldBe countAfterKill
   }
 
-  it should "throw an expection when passed a negative duration" in {
+  it should "throw an exception when passed a negative duration" in {
     an[IllegalArgumentException] should be thrownBy Scheduler.scheduleWaitAtLeast(-100 milliseconds) { () =>
       Future.successful(true)
     }
@@ -127,7 +127,7 @@ class SchedulerTests extends FlatSpec with Matchers with WskActorSystem with Str
 
     waitForCalls()
     stream.toString.split(" ").drop(1).mkString(" ") shouldBe {
-      s"[ERROR] [$transid] [Scheduler] halted because $msg\n"
+      s"[ERROR] [${transid.root}] [] [Scheduler] halted because $msg\n"
     }
   }
 

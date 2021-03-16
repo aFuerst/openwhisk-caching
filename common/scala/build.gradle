@@ -73,6 +73,9 @@ dependencies {
     //for mesos
     compile "com.adobe.api.platform.runtime:mesos-actor:0.0.17"
 
+    // for etcd
+    compile("com.ibm.etcd:etcd-java:0.0.13")
+
     //tracing support
     compile "io.opentracing:opentracing-api:0.31.0"
     compile "io.opentracing:opentracing-util:0.31.0"
@@ -94,6 +97,10 @@ dependencies {
         exclude group: 'com.fasterxml.jackson.dataformat'
     }
     compile "com.amazonaws:aws-java-sdk-cloudfront:1.11.517"
+
+    compile ("com.azure:azure-storage-blob:12.6.0") {
+        exclude group: "com.azure", module: "azure-core-test"
+    }
 }
 
 configurations {

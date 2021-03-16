@@ -15,8 +15,15 @@
  * limitations under the License.
  */
 
-function main(args) {
-    var str = args.delimiter + " ☃ " + args.delimiter;
-    console.log(str);
-    return { "winter": str };
+package org.apache.openwhisk.core.database.azblob
+
+import org.apache.openwhisk.core.entity.WhiskEntity
+import org.junit.runner.RunWith
+import org.scalatest.junit.JUnitRunner
+
+@RunWith(classOf[JUnitRunner])
+class AzureBlobAttachmentStoreITTests extends AzureBlobAttachmentStoreBehaviorBase with AzureBlob {
+  override lazy val store = makeAzureStore[WhiskEntity]
+
+  override def storeType: String = "Azure"
 }

@@ -100,11 +100,14 @@ class AkkaLogging(loggingAdapter: LoggingAdapter) extends Logging {
     }
   }
 
-  protected def format(id: TransactionId, name: String, logmsg: String) = s"[$id] [$name] $logmsg"
+  protected def format(id: TransactionId, name: String, logmsg: String) = {
+    val currentId = if (id.hasParent) s"[$id] " else ""
+    s"[${id.root}] $currentId[$name] $logmsg"
+  }
 }
 
 /**
- * Implementaion of Logging, that uses the output stream.
+ * Implementation of Logging, that uses the output stream.
  */
 class PrintStreamLogging(outputStream: PrintStream = Console.out) extends Logging {
   override def emit(loglevel: LogLevel, id: TransactionId, from: AnyRef, message: => String) = {
@@ -124,8 +127,9 @@ class PrintStreamLogging(outputStream: PrintStream = Console.out) extends Loggin
       case msg if msg.nonEmpty =>
         msg.split('\n').map(_.trim).mkString(" ")
     }
+    val currentId = if (id.hasParent) id else ""
 
-    val parts = Seq(s"[$time]", s"[$level]", s"[$id]") ++ Seq(s"[$name]") ++ logMessage
+    val parts = Seq(s"[$time]", s"[$level]", s"[${id.root}]", s"[$currentId]") ++ Seq(s"[$name]") ++ logMessage
     outputStream.println(parts.mkString(" "))
   }
 }
@@ -334,6 +338,7 @@ object LoggingMarkers {
   val timeout = "timeout"
 
   private val controller = "controller"
+  private val scheduler = "scheduler"
   private val invoker = "invoker"
   private val database = "database"
   private val activation = "activation"
@@ -511,6 +516,12 @@ object LoggingMarkers {
     LogMarkerToken(containerPool, "prewarmSize", counter)(MeasurementUnit.information.megabytes)
   val CONTAINER_POOL_IDLES_COUNT =
     LogMarkerToken(containerPool, "idlesCount", counter)(MeasurementUnit.none)
+  def CONTAINER_POOL_PREWARM_COLDSTART(memory: String, kind: String) =
+    LogMarkerToken(containerPool, "prewarmColdstart", counter, None, Map("memory" -> memory, "kind" -> kind))(
+      MeasurementUnit.none)
+  def CONTAINER_POOL_PREWARM_EXPIRED(memory: String, kind: String) =
+    LogMarkerToken(containerPool, "prewarmExpired", counter, None, Map("memory" -> memory, "kind" -> kind))(
+      MeasurementUnit.none)
   val CONTAINER_POOL_IDLES_SIZE =
     LogMarkerToken(containerPool, "idlesSize", counter)(MeasurementUnit.information.megabytes)
 
@@ -544,6 +555,9 @@ object LoggingMarkers {
     if (TransactionId.metricsKamonTags)
       LogMarkerToken(kafka, "topic", start, Some("delay"), Map("topic" -> topic))(MeasurementUnit.time.milliseconds)
     else LogMarkerToken(kafka, topic, start, Some("delay"))(MeasurementUnit.time.milliseconds)
+
+  def SCHEDULER_KEEP_ALIVE(leaseId: Long) =
+    LogMarkerToken(scheduler, "keepAlive", counter, None, Map("leaseId" -> leaseId.toString))(MeasurementUnit.none)
 
   /*
    * General markers

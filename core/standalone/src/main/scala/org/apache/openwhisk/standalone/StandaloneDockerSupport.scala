@@ -107,7 +107,7 @@ object StandaloneDockerSupport {
 
   /**
    * Returns the hostname to access the playground.
-   * It defaults to localhost but it can be overriden
+   * It defaults to localhost but it can be overridden
    * and it is useful when the standalone is run in a container.
    */
   def getExternalHostName(): String = {
@@ -190,7 +190,11 @@ object StandaloneDockerSupport {
     //TODO Logic duplicated from DockerClient and WindowsDockerClient for now
     val executable = loadConfig[String]("whisk.docker.executable").toOption
     val alternatives =
-      List("/usr/bin/docker", "/usr/local/bin/docker", """C:\Program Files\Docker\Docker\resources\bin\docker.exe""") ++ executable
+      List(
+        "/usr/bin/docker",
+        "/usr/local/bin/docker",
+        """C:\Program Files\Docker\Docker\resources\bin\docker.exe""",
+        """C:\Program Files\Docker\Docker\resources\docker.exe""") ++ executable
     Try {
       alternatives.find(a => Files.isExecutable(Paths.get(a))).get
     } getOrElse {

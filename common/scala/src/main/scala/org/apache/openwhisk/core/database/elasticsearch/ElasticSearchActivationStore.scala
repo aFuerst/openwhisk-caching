@@ -57,26 +57,16 @@ case class ElasticSearchActivationStoreConfig(protocol: String,
 
 class ElasticSearchActivationStore(
   httpFlow: Option[Flow[(HttpRequest, Promise[HttpResponse]), (Try[HttpResponse], Promise[HttpResponse]), Any]] = None,
-  elasticSearchConfig: ElasticSearchActivationStoreConfig =
-    loadConfigOrThrow[ElasticSearchActivationStoreConfig](ConfigKeys.elasticSearchActivationStore),
+  elasticSearchConfig: ElasticSearchActivationStoreConfig,
   useBatching: Boolean = false)(implicit actorSystem: ActorSystem,
                                 actorMaterializer: ActorMaterializer,
                                 logging: Logging)
     extends ActivationStore {
 
   import com.sksamuel.elastic4s.http.ElasticDsl._
+  import ElasticSearchActivationStore.{generateIndex, httpClientCallback}
 
   private implicit val executionContextExecutor: ExecutionContextExecutor = actorSystem.dispatcher
-
-  private val httpClientCallback = new HttpClientConfigCallback {
-    override def customizeHttpClient(httpClientBuilder: HttpAsyncClientBuilder): HttpAsyncClientBuilder = {
-      val provider = new BasicCredentialsProvider
-      provider.setCredentials(
-        AuthScope.ANY,
-        new UsernamePasswordCredentials(elasticSearchConfig.username, elasticSearchConfig.password))
-      httpClientBuilder.setDefaultCredentialsProvider(provider)
-    }
-  }
 
   private val client =
     ElasticClient(
@@ -100,9 +90,16 @@ class ElasticSearchActivationStore(
     val start =
       transid.started(this, LoggingMarkers.DATABASE_SAVE, s"[PUT] 'activations' document: '${activation.docid}'")
 
-    val path = activation.annotations
-      .getAs[String](WhiskActivation.pathAnnotation)
-      .getOrElse(s"${activation.namespace}/${activation.name}")
+    val bindingPath = activation.annotations
+      .getAs[String](WhiskActivation.bindingAnnotation)
+      .toOption
+      .map(binding => s"$binding/${activation.name}")
+
+    val path = bindingPath.getOrElse(
+      activation.annotations
+        .getAs[String](WhiskActivation.pathAnnotation)
+        .getOrElse(s"${activation.namespace}/${activation.name}"))
+
     // Escape `_id` field as it's not permitted in ElasticSearch, add `path` field for search, and
     // convert annotations to JsObject as ElasticSearch doesn't support array with mixed types
     // response.result can be any type ElasticSearch also doesn't support that, so convert it to a string
@@ -400,10 +397,6 @@ class ElasticSearchActivationStore(
     activationId.toString.split("/")(0)
   }
 
-  private def generateIndex(namespace: String): String = {
-    elasticSearchConfig.indexPattern.dropWhile(_ == '/') format namespace.toLowerCase
-  }
-
   private def generateRangeQuery(key: String, since: Option[Instant], upto: Option[Instant]): RangeQuery = {
     rangeQuery(key)
       .gte(since.map(_.toEpochMilli).getOrElse(minStart))
@@ -411,7 +404,31 @@ class ElasticSearchActivationStore(
   }
 }
 
+object ElasticSearchActivationStore {
+  val elasticSearchConfig: ElasticSearchActivationStoreConfig =
+    loadConfigOrThrow[ElasticSearchActivationStoreConfig](ConfigKeys.elasticSearchActivationStore)
+
+  val httpClientCallback = new HttpClientConfigCallback {
+    override def customizeHttpClient(httpClientBuilder: HttpAsyncClientBuilder): HttpAsyncClientBuilder = {
+      val provider = new BasicCredentialsProvider
+      provider.setCredentials(
+        AuthScope.ANY,
+        new UsernamePasswordCredentials(elasticSearchConfig.username, elasticSearchConfig.password))
+      httpClientBuilder.setDefaultCredentialsProvider(provider)
+    }
+  }
+
+  def generateIndex(namespace: String): String = {
+    elasticSearchConfig.indexPattern.dropWhile(_ == '/') format namespace.toLowerCase
+  }
+}
+
 object ElasticSearchActivationStoreProvider extends ActivationStoreProvider {
+  import ElasticSearchActivationStore.elasticSearchConfig
+
   override def instance(actorSystem: ActorSystem, actorMaterializer: ActorMaterializer, logging: Logging) =
-    new ElasticSearchActivationStore(useBatching = true)(actorSystem, actorMaterializer, logging)
+    new ElasticSearchActivationStore(elasticSearchConfig = elasticSearchConfig, useBatching = true)(
+      actorSystem,
+      actorMaterializer,
+      logging)
 }

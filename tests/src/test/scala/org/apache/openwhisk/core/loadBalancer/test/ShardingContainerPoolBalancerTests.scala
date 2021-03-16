@@ -127,7 +127,7 @@ class ShardingContainerPoolBalancerTests
     state.managedStepSizes shouldBe Seq(1)
     state.blackboxStepSizes shouldBe Seq(1)
 
-    // aquire a slot to alter invoker state
+    // acquire a slot to alter invoker state
     state.invokerSlots.head.tryAcquire(memoryPerSlot.toMB.toInt)
     state.invokerSlots.head.availablePermits shouldBe (memory - memoryPerSlot).toMB.toInt
 
@@ -508,7 +508,8 @@ class ShardingContainerPoolBalancerTests
         ControllerInstanceId("0"),
         blocking = false,
         content = None,
-        initArgs = Set.empty)
+        initArgs = Set.empty,
+        lockedArgs = Map.empty)
 
       //send activation to loadbalancer
       aid -> balancer.publish(actionMetaData.toExecutableWhiskAction.get, msg)

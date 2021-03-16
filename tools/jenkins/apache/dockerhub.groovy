@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-node('openwhisk1||openwhisk2||openwhisk3') {
+node('ubuntu') {
   sh "env"
   sh "docker version"
   sh "docker info"
@@ -24,7 +24,7 @@ node('openwhisk1||openwhisk2||openwhisk3') {
   checkout scm
 
   stage("Build and Deploy to DockerHub") {
-    def JAVA_JDK_8=tool name: 'JDK 1.8 (latest)', type: 'hudson.model.JDK'
+    def JAVA_JDK_8=tool name: 'jdk_1.8_latest', type: 'hudson.model.JDK'
     withEnv(["Path+JDK=$JAVA_JDK_8/bin","JAVA_HOME=$JAVA_JDK_8"]) {
       withCredentials([usernamePassword(credentialsId: 'openwhisk_dockerhub', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
           sh 'docker login -u ${DOCKER_USER} -p ${DOCKER_PASSWORD}'

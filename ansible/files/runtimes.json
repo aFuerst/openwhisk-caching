@@ -15,34 +15,6 @@
     "runtimes": {
         "nodejs": [
             {
-                "kind": "nodejs:6",
-                "default": false,
-                "image": {
-                    "prefix": "openwhisk",
-                    "name": "nodejs6action",
-                    "tag": "nightly"
-                },
-                "deprecated": true,
-                "attached": {
-                    "attachmentName": "codefile",
-                    "attachmentType": "text/plain"
-                }
-            },
-            {
-                "kind": "nodejs:8",
-                "default": false,
-                "image": {
-                    "prefix": "openwhisk",
-                    "name": "action-nodejs-v8",
-                    "tag": "nightly"
-                },
-                "deprecated": true,
-                "attached": {
-                    "attachmentName": "codefile",
-                    "attachmentType": "text/plain"
-                }
-            },
-            {
                 "kind": "nodejs:10",
                 "default": true,
                 "image": {
@@ -54,7 +26,20 @@
                 "attached": {
                     "attachmentName": "codefile",
                     "attachmentType": "text/plain"
-                }
+                },
+                "stemCells": [
+                    {
+                        "initialCount": 0,
+                        "memory": "256 MB",
+                        "reactive": {
+                            "minCount": 1,
+                            "maxCount": 4,
+                            "ttl": "2 minutes",
+                            "threshold": 1,
+                            "increment": 1
+                        }
+                    }
+                ]
             },
             {
                 "kind": "nodejs:12",
@@ -69,23 +54,23 @@
                     "attachmentName": "codefile",
                     "attachmentType": "text/plain"
                 }
-            }
-        ],
-        "python": [
+            },
             {
-                "kind": "python:2",
+                "kind": "nodejs:14",
                 "default": false,
                 "image": {
                     "prefix": "openwhisk",
-                    "name": "python2action",
-                    "tag": "1.13.0-incubating"
+                    "name": "action-nodejs-v14",
+                    "tag": "nightly"
                 },
                 "deprecated": false,
                 "attached": {
                     "attachmentName": "codefile",
                     "attachmentType": "text/plain"
                 }
-            },
+            }
+        ],
+        "python": [
             {
                 "kind": "python:3",
                 "default": false,
@@ -146,7 +131,7 @@
         "swift": [
             {
                 "kind": "swift:4.2",
-                "default": true,
+                "default": false,
                 "image": {
                     "prefix": "openwhisk",
                     "name": "action-swift-v4.2",
@@ -164,6 +149,20 @@
                 "image": {
                     "prefix": "openwhisk",
                     "name": "action-swift-v5.1",
+                    "tag": "nightly"
+                },
+                "deprecated": false,
+                "attached": {
+                    "attachmentName": "codefile",
+                    "attachmentType": "text/plain"
+                }
+            },
+            {
+                "kind": "swift:5.3",
+                "default": true,
+                "image": {
+                    "prefix": "openwhisk",
+                    "name": "action-swift-v5.3",
                     "tag": "nightly"
                 },
                 "deprecated": false,
@@ -218,6 +217,20 @@
                     "attachmentName": "codefile",
                     "attachmentType": "text/plain"
                 }
+            },
+            {
+                "kind": "php:8.0",
+                "default": false,
+                "deprecated": false,
+                "image": {
+                    "prefix": "openwhisk",
+                    "name": "action-php-v8.0",
+                    "tag": "nightly"
+                },
+                "attached": {
+                    "attachmentName": "codefile",
+                    "attachmentType": "text/plain"
+                }
             }
         ],
         "ruby": [
@@ -239,6 +252,20 @@
         "go": [
             {
                 "kind": "go:1.11",
+                "default": false,
+                "deprecated": true,
+                "attached": {
+                    "attachmentName": "codefile",
+                    "attachmentType": "text/plain"
+                },
+                "image": {
+                    "prefix": "openwhisk",
+                    "name": "action-golang-v1.11",
+                    "tag": "nightly"
+                }
+            },
+            {
+                "kind": "go:1.15",
                 "default": true,
                 "deprecated": false,
                 "attached": {
@@ -247,7 +274,7 @@
                 },
                 "image": {
                     "prefix": "openwhisk",
-                    "name": "action-golang-v1.11",
+                    "name": "action-golang-v1.15",
                     "tag": "nightly"
                 }
             }

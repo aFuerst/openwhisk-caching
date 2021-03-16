@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-FROM adoptopenjdk/openjdk8:jdk8u191-b12
+FROM adoptopenjdk/openjdk8:jdk8u262-b10
 
 ENV DOCKER_VERSION 1.12.0
 ENV KUBECTL_VERSION v1.16.3
@@ -24,6 +24,7 @@ ENV WHISKDEPLOY_CLI_VERSION latest
 
 RUN apt-get update && apt-get install -y \
   git \
+  jq \
   libffi-dev \
   nodejs \
   npm \
@@ -31,12 +32,17 @@ RUN apt-get update && apt-get install -y \
   python-pip \
   wget \
   zip \
+  locales \
 && rm -rf /var/lib/apt/lists/*
+
+RUN locale-gen en_US.UTF-8
+ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en' LC_ALL='en_US.UTF-8'
 
 # Python packages
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
-RUN pip install ansible==2.5.2 && \
+RUN pip install cryptography==2.5 && \
+    pip install ansible==2.5.2 && \
     pip install jinja2==2.9.6 && \
     pip install docker
 

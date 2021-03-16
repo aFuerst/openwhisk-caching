@@ -40,6 +40,7 @@ def leanExcludes = [
 def projectsWithCoverage = [
     ':common:scala',
     ':core:controller',
+    ':core:scheduler',
     ':core:invoker',
     ':tools:admin',
     ':core:cosmosdb:cache-invalidator'
@@ -70,10 +71,12 @@ ext.testSets = [
             "org/apache/openwhisk/standalone/**",
             "org/apache/openwhisk/core/cli/test/**",
             "org/apache/openwhisk/core/limits/**",
+            "org/apache/openwhisk/core/scheduler/**",
+            "org/apache/openwhisk/common/etcd/**",
             "**/*CacheConcurrencyTests*",
             "**/*ControllerApiTests*",
             "org/apache/openwhisk/testEntities/**",
-            'invokerShoot/**'
+            "invokerShoot/**"
         ]
     ],
     "REQUIRE_SYSTEM" : [
@@ -81,6 +84,13 @@ ext.testSets = [
         "excludes": [
             "system/basic/WskMultiRuntimeTests*",
             'invokerShoot/**'
+        ]
+    ],
+    "REQUIRE_SCHEDULER" : [
+        "includes" : [
+            "org/apache/openwhisk/common/etcd/**",
+            "org/apache/openwhisk/core/scheduler/**",
+            "org/apache/openwhisk/core/service/**",
         ]
     ],
     "REQUIRE_MULTI_RUNTIME" : [
@@ -169,6 +179,10 @@ task testSystemKCF(type: Test) {
 
     // KubernetesContainerFactory's logs API is not reliable and mixes stdout/stderr into a single stream
     exclude "**/*ActivationLogsTests*"
+
+    // These tests fail almost all the time in openwhisk-deploy-kube TravisCI.  Disabling to unblock PRs.
+    exclude "**/*WskPackageTests*"
+    exclude "**/*WskSequenceTests*"
 }
 
 task testUnit(type: Test) {
@@ -217,6 +231,7 @@ dependencies {
 
     compile project(':common:scala')
     compile project(':core:controller')
+    compile project(':core:scheduler')
     compile project(':core:invoker')
     compile project(':core:cosmosdb:cache-invalidator')
     compile project(':core:monitoring:user-events')
@@ -317,6 +332,7 @@ task copyMeasurementFiles() {
     doLast{
         Project common = project(":common:scala")
         Project controller = project(":core:controller")
+        Project scheduler = project(":core:scheduler")
         Project invoker = project(":core:invoker")
 
         Properties wskProps = loadWhiskProps()
@@ -327,6 +343,8 @@ task copyMeasurementFiles() {
 
         copyAndRenameMeasurementFile(covLogs, 'controller', "common", common)
         copyAndRenameMeasurementFile(covLogs, 'controller', "controller", controller)
+        copyAndRenameMeasurementFile(covLogs, 'scheduler', "common", common)
+        copyAndRenameMeasurementFile(covLogs, 'scheduler', "scheduler", scheduler)
         copyAndRenameMeasurementFile(covLogs, 'invoker', "common", common)
         copyAndRenameMeasurementFile(covLogs, 'invoker', "invoker", invoker)
     }

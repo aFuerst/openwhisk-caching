@@ -18,6 +18,7 @@ akka.jvm-exit-on-fatal-error = off
 whisk {
     feature-flags {
       require-api-key-annotation = {{ whisk.feature_flags.require_api_key_annotation | default(true) }}
+      require-response-payload = {{ whisk.feature_flags.require_response_payload | default(true) }}
     }
     # kafka related configuration
     kafka {
@@ -94,11 +95,38 @@ whisk {
     }
 
     parameter-storage {
-        key = ""
+        current = "off"
     }
-    
+
     elasticsearch {
         docker-image = "{{ elasticsearch.docker_image | default('docker.elastic.co/elasticsearch/elasticsearch:' ~ elasticsearch.version ) }}"
+    }
+
+    helm.release = "release"
+    runtime.delete.timeout = "30 seconds"
+
+    duration-checker {
+        time-window = "{{ durationChecker.timeWindow }}"
+    }
+
+    activation-store {
+        elasticsearch {
+            protocol      = "{{ db.elasticsearch.protocol }}"
+            hosts         = "{{ elasticsearch_connect_string }}"
+            index-pattern = "{{ db.elasticsearch.index_pattern }}"
+            username      = "{{ db.elasticsearch.auth.admin.username }}"
+            password      = "{{ db.elasticsearch.auth.admin.password }}"
+        }
+    }
+
+    etcd {
+        hosts = "{{ etcd_connect_string }}"
+        lease {
+            timeout = "{{ etcd.lease.timeout }}"
+        }
+        pool {
+            threads = "{{ etcd.pool_threads }}"
+        }
     }
 }
 

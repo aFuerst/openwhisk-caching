@@ -99,6 +99,12 @@ object Messages {
     s"${error.field} length is ${error.is.toBytes} but must be ${error.allowed.toBytes}."
   }
 
+  /** Standard error for malformed creation id. */
+  val creationIdIllegal = "The creation id is not valid."
+  def creationIdLengthError(error: SizeError) = {
+    s"${error.field} length is ${error.is.toBytes} but must be ${error.allowed.toBytes}."
+  }
+
   /** Error messages for sequence actions. */
   val sequenceIsTooLong = "Too many actions in the sequence."
   val sequenceNoComponent = "No component specified for the sequence."
@@ -229,6 +235,15 @@ object Messages {
 
   /** Indicates that the container for the action could not be started. */
   val resourceProvisionError = "Failed to provision resources to run the action."
+
+  def forbiddenGetActionBinding(entityDocId: String) =
+    s"GET not permitted for '$entityDocId'. Resource does not exist or is an action in a shared package binding."
+  def forbiddenGetAction(entityPath: String) =
+    s"GET not permitted for '$entityPath' since it's an action in a shared package"
+  def forbiddenGetPackageBinding(packageName: String) =
+    s"GET not permitted since $packageName is a binding of a shared package"
+  def forbiddenGetPackage(packageName: String) =
+    s"GET not permitted for '$packageName' since it's a shared package"
 }
 
 /** Replaces rejections with Json object containing cause and transaction id. */

@@ -33,6 +33,7 @@ These are the collection endpoints:
 - `https://$APIHOST/api/v1/namespaces/{namespace}/rules`
 - `https://$APIHOST/api/v1/namespaces/{namespace}/packages`
 - `https://$APIHOST/api/v1/namespaces/{namespace}/activations`
+- `https://$APIHOST/api/v1/namespaces/{namespace}/limits`
 
 The `$APIHOST` is the OpenWhisk API hostname (for example, localhost, 172.17.0.1, and so on).
 For the `{namespace}`, the character `_` can be used to specify the user's *default
@@ -315,6 +316,15 @@ curl -u $AUTH https://$APIHOST/api/v1/namespaces/_/packages/iot?overwrite=true \
 -d '{"namespace":"_","name":"iot"}'
 ```
 
+To force delete a package that contains entities, set the force parameter to true. Failure
+will return an error either for failure to delete an action within the package or the package itself.
+The package will not be attempted to be deleted until all actions are successfully deleted.
+
+```bash
+curl -u $AUTH https://$APIHOST/api/v1/namespaces/_/packages/iot?force=true \
+-X DELETE
+```
+
 ## Activations
 
 To get the list of the last 3 activations use a HTTP request with a `GET` method, passing the query parameter `limit=3`
@@ -326,3 +336,11 @@ To get all the details of an activation including results and logs, send a HTTP 
 ```bash
 curl -u $AUTH https://$APIHOST/api/v1/namespaces/_/activations/f81dfddd7156401a8a6497f2724fec7b
 ```
+
+## Limits
+
+To get the limits set for a namespace (i.e. invocationsPerMinute, concurrentInvocations, firesPerMinute)
+```bash
+curl -u $AUTH https://$APIHOST/api/v1/namespaces/_/limits
+```
+Note that the default system values are returned if no specific limits are set for the user corresponding to the authenticated identity.
