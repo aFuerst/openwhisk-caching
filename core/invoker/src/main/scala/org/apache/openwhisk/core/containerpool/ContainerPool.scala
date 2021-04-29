@@ -240,6 +240,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                       container
                   } else {
                     None
+                  }
                   })
               .orElse(
                 // Remove a container and create a new one for the given job
