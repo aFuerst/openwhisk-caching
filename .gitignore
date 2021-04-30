@@ -18,6 +18,7 @@ results
 !/ansible/environments/docker-machine
 !/ansible/environments/local
 !/ansible/environments/mac
+!/ansible/environments/bal-distrib
 
 # Eclipse
 bin/
