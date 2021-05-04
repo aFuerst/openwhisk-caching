@@ -19,6 +19,7 @@ results
 !/ansible/environments/local
 !/ansible/environments/mac
 !/ansible/environments/bal-distrib
+!/ansible/environments/local-distrib
 
 # Eclipse
 bin/

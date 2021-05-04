@@ -19,7 +19,6 @@ package org.apache.openwhisk.core.loadBalancer
 
 import akka.actor.ActorRef
 import akka.actor.ActorRefFactory
-// import java.util.concurrent.ThreadLocalRandom
 
 import akka.actor.{Actor, ActorSystem, Props}
 import akka.cluster.ClusterEvent._
@@ -34,26 +33,20 @@ import org.apache.openwhisk.common._
 import org.apache.openwhisk.core.WhiskConfig._
 import org.apache.openwhisk.core.connector._
 import org.apache.openwhisk.core.entity._
-// import org.apache.openwhisk.core.entity.size.SizeLong
 import org.apache.openwhisk.common.LoggingMarkers._
 import org.apache.openwhisk.core.loadBalancer.InvokerState.{Healthy, Offline, Unhealthy, Unresponsive}
-// import org.apache.openwhisk.core.loadBalancer.{ActivationEntry, ClusterConfig}
 import org.apache.openwhisk.core.{ConfigKeys, WhiskConfig}
 import org.apache.openwhisk.spi.SpiLoader
 
-// import scala.annotation.tailrec
 import scala.concurrent.Future
-// import scala.concurrent.duration.FiniteDuration
 
 import org.ishugaliy.allgood.consistent.hash.{HashRing, ConsistentHash}
-import org.ishugaliy.allgood.consistent.hash.node.{Node} // SimpleNode
-// import scala.compat.java8.OptionConverters.asScala
-// import scala.jdk.OptionConverters._
+import org.ishugaliy.allgood.consistent.hash.node.{Node}
 
 /**
  * A loadbalancer that schedules workload based on power-of-two consistent hashing-algorithm.
  */
-class PowerOfTwoBalancer(
+class ConsistentHashBalancer(
   config: WhiskConfig,
   controllerInstance: ControllerInstanceId,
   feedFactory: FeedFactory,
@@ -84,13 +77,13 @@ class PowerOfTwoBalancer(
   }
 
   /** State needed for scheduling. */
-  val schedulingState = PowerOfTwoBalancerState()(lbConfig)
+  val schedulingState = ConsistentHashBalancerState()(lbConfig)
 
   /**
    * Monitors invoker supervision and the cluster to update the state sequentially
    *
    * All state updates should go through this actor to guarantee that
-   * [[PowerOfTwoBalancerState.updateInvokers]] and [[PowerOfTwoBalancerState.updateCluster]]
+   * [[ConsistentHashBalancerState.updateInvokers]] and [[ConsistentHashBalancerState.updateCluster]]
    * are called exclusive of each other and not concurrently.
    */
   private val monitor = actorSystem.actorOf(Props(new Actor {
@@ -135,7 +128,7 @@ class PowerOfTwoBalancer(
   override def publish(action: ExecutableWhiskActionMetaData, msg: ActivationMessage)(
     implicit transid: TransactionId): Future[Future[Either[ActivationId, WhiskActivation]]] = {
 
-    val chosen = PowerOfTwoBalancer.schedule(action.fullyQualifiedName(true), schedulingState)
+    val chosen = ConsistentHashBalancer.schedule(action.fullyQualifiedName(true), schedulingState)
 
     chosen.map { invoker => 
       // MemoryLimit() and TimeLimit() return singletons - they should be fast enough to be used here
@@ -175,7 +168,7 @@ class PowerOfTwoBalancer(
   }
 }
 
-object PowerOfTwoBalancer extends LoadBalancerProvider {
+object ConsistentHashBalancer extends LoadBalancerProvider {
 
   override def instance(whiskConfig: WhiskConfig, instance: ControllerInstanceId)(
     implicit actorSystem: ActorSystem,
@@ -201,7 +194,7 @@ object PowerOfTwoBalancer extends LoadBalancerProvider {
       }
 
     }
-    new PowerOfTwoBalancer(
+    new ConsistentHashBalancer(
       whiskConfig,
       instance,
       createFeedFactory(whiskConfig, instance),
@@ -218,12 +211,12 @@ object PowerOfTwoBalancer extends LoadBalancerProvider {
    */
   def schedule(
     fqn: FullyQualifiedEntityName,
-    state: PowerOfTwoBalancerState)(implicit logging: Logging, transId: TransactionId): Option[InvokerInstanceId] = {
+    state: ConsistentHashBalancerState)(implicit logging: Logging, transId: TransactionId): Option[InvokerInstanceId] = {
     state.getInvoker(fqn)
   }
 }
 
-class PowerOfTwoInvokerNode(_invoker: InvokerInstanceId)
+class ConsisntentHashInvokerNode(_invoker: InvokerInstanceId)
   extends Node {
   
   val invoker : InvokerInstanceId = _invoker
@@ -238,8 +231,8 @@ class PowerOfTwoInvokerNode(_invoker: InvokerInstanceId)
  *
  * @param _invokers all of the known invokers in the system
  */
-case class PowerOfTwoBalancerState(
-  private var _consistentHash: ConsistentHash[PowerOfTwoInvokerNode] = HashRing.newBuilder().build(),
+case class ConsistentHashBalancerState(
+  private var _consistentHash: ConsistentHash[ConsisntentHashInvokerNode] = HashRing.newBuilder().build(),
   private var _invokers: IndexedSeq[InvokerHealth] = IndexedSeq.empty[InvokerHealth])(
   lbConfig: ShardingContainerPoolBalancerConfig =
     loadConfigOrThrow[ShardingContainerPoolBalancerConfig](ConfigKeys.loadbalancer))(implicit logging: Logging) {
@@ -250,11 +243,6 @@ case class PowerOfTwoBalancerState(
   def getInvoker(fqn: FullyQualifiedEntityName) : Option[InvokerInstanceId] = {
     val node = _consistentHash.locate(fqn.toString)
     if (node.isPresent) Some(node.get().invoker) else None
-    
-    // node match {
-    //   case Some(i) => Some(i.invoker)
-    //   case other => None
-    // }
   }
 
   /**
@@ -267,8 +255,8 @@ case class PowerOfTwoBalancerState(
     val oldSize = _invokers.size
     val newSize = newInvokers.size
 
-    val newHash : ConsistentHash[PowerOfTwoInvokerNode] = HashRing.newBuilder().build()
-    newInvokers.map {invoker => newHash.add(new PowerOfTwoInvokerNode(invoker.id))} // .toString()
+    val newHash : ConsistentHash[ConsisntentHashInvokerNode] = HashRing.newBuilder().build()
+    newInvokers.map {invoker => newHash.add(new ConsisntentHashInvokerNode(invoker.id))} // .toString()
 
     _invokers = newInvokers
     _consistentHash = newHash
@@ -279,7 +267,7 @@ case class PowerOfTwoBalancerState(
   }
 
   def releaseInvoker(invoker: InvokerInstanceId, entry: ActivationEntry) = {
-    // _consistentHash.remove(new PowerOfTwoInvokerNode(invoker))
+    // _consistentHash.remove(new ConsisntentHashInvokerNode(invoker))
     // do nothing. function meant for marking an outstanding action as 'complete'
   }
 
