@@ -15,10 +15,14 @@ VMN=1
     -daemonize \
     -display none \
     -monitor  telnet:127.0.0.1:${VMN}5682,server,nowait \
-    -netdev user,id=mynet0,hostfwd=tcp::${VMN}0022-:22,hostfwd=tcp::${VMN}4343-:443,hostfwd=tcp::${VMN}5080-:80,hostfwd=tcp::1200${VMN}-:1200${VMN} \
-    -device virtio-net-pci,netdev=mynet0 \
+    -device virtio-net-pci,netdev=network0,mac=52:54:00:21:34:56 \
+    -netdev tap,ifname=QemuTap1,id=network0,script=no \
     -drive file="$drive",if=virtio,aio=threads,format=raw \
     -debugcon file:debug.log -global isa-debugcon.iobase=0x402
+
+    # -netdev user,id=mynet0,hostfwd=tcp::${VMN}0022-:22,hostfwd=tcp::${VMN}4343-:443,hostfwd=tcp::${VMN}5080-:80,hostfwd=tcp::1200${VMN}-:1200${VMN} \
+    # -device virtio-net-pci,netdev=mynet0 \
+
 
 # for invokerid in 1 2 3 4
 # do

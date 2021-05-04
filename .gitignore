@@ -100,3 +100,5 @@ core/routemgmt/getApi/package-lock.json
 core/routemgmt/getApi/utils.js
 
 .metals/
+buildlog.txt
+run_logs_cache/

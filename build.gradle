@@ -68,6 +68,11 @@ subprojects {
                 mavenCentral()
             }
 
+            dependencies {
+              // https://github.com/ishugaliy/allgood-consistent-hash
+              compile group: 'com.github.ishugaliy', name: 'allgood-consistent-hash', version: '1.0.0'
+            }
+
             tasks.withType(ScalaCompile) {
                 scalaCompileOptions.additionalParameters = gradle.scala.compileFlags
                 scalaCompileOptions.forkOptions.jvmArgs = ["-Xss2m"]
