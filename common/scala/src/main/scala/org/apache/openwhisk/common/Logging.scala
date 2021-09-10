@@ -366,6 +366,26 @@ object LoggingMarkers {
    *
    * MetricEmitter.emitCounterMetric(LoggingMarkers.MY_COUNTER(GreenCounter))
    */
+  def SCHEDULER_NAMESPACE_CONTAINER(namespace: String) =
+    LogMarkerToken(scheduler, "namespaceContainer", counter, Some(namespace), Map("namespace" -> namespace))(
+      MeasurementUnit.none)
+  def SCHEDULER_NAMESPACE_INPROGRESS_CONTAINER(namespace: String) =
+    LogMarkerToken(scheduler, "namespaceInProgressContainer", counter, Some(namespace), Map("namespace" -> namespace))(
+      MeasurementUnit.none)
+  def SCHEDULER_ACTION_CONTAINER(namespace: String, action: String) =
+    LogMarkerToken(
+      scheduler,
+      "actionContainer",
+      counter,
+      Some(namespace),
+      Map("namespace" -> namespace, "action" -> action))(MeasurementUnit.none)
+  def SCHEDULER_ACTION_INPROGRESS_CONTAINER(namespace: String, action: String) =
+    LogMarkerToken(
+      scheduler,
+      "actionInProgressContainer",
+      counter,
+      Some(namespace),
+      Map("namespace" -> namespace, "action" -> action))(MeasurementUnit.none)
 
   /*
    * Controller related markers
@@ -388,6 +408,10 @@ object LoggingMarkers {
 
   // Time that is needed to produce message in kafka
   val CONTROLLER_KAFKA = LogMarkerToken(controller, kafka, start)(MeasurementUnit.time.milliseconds)
+  def INVOKER_SHAREDPACKAGE(path: String) =
+    LogMarkerToken(invoker, "sharedPackage", counter, None, Map("path" -> path))(MeasurementUnit.none)
+  def INVOKER_CONTAINERPOOL_MEMORY(state: String) =
+    LogMarkerToken(invoker, "containerPoolMemory", counter, Some(state), Map("state" -> state))(MeasurementUnit.none)
 
   // System overload and random invoker assignment
   val MANAGED_SYSTEM_OVERLOAD =
@@ -475,10 +499,6 @@ object LoggingMarkers {
     LogMarkerToken(invoker, "runc", start, Some(cmd), Map("cmd" -> cmd))(MeasurementUnit.time.milliseconds)
   def INVOKER_KUBEAPI_CMD(cmd: String) =
     LogMarkerToken(invoker, "kubeapi", start, Some(cmd), Map("cmd" -> cmd))(MeasurementUnit.none)
-  def INVOKER_MESOS_CMD(cmd: String) =
-    LogMarkerToken(invoker, "mesos", start, Some(cmd), Map("cmd" -> cmd))(MeasurementUnit.time.milliseconds)
-  def INVOKER_MESOS_CMD_TIMEOUT(cmd: String) =
-    LogMarkerToken(invoker, "mesos", timeout, Some(cmd), Map("cmd" -> cmd))(MeasurementUnit.none)
   def INVOKER_CONTAINER_START(containerState: String, invocationNamespace: String, namespace: String, action: String) =
     LogMarkerToken(
       invoker,
@@ -556,9 +576,19 @@ object LoggingMarkers {
       LogMarkerToken(kafka, "topic", start, Some("delay"), Map("topic" -> topic))(MeasurementUnit.time.milliseconds)
     else LogMarkerToken(kafka, topic, start, Some("delay"))(MeasurementUnit.time.milliseconds)
 
+  // Time that is needed to produce message in kafka
+  val SCHEDULER_KAFKA = LogMarkerToken(scheduler, kafka, start)(MeasurementUnit.time.milliseconds)
+  val SCHEDULER_WAIT_TIME =
+    LogMarkerToken(scheduler, "waitTime", counter)(MeasurementUnit.none)
+
   def SCHEDULER_KEEP_ALIVE(leaseId: Long) =
     LogMarkerToken(scheduler, "keepAlive", counter, None, Map("leaseId" -> leaseId.toString))(MeasurementUnit.none)
-
+  def SCHEDULER_QUEUE = LogMarkerToken(scheduler, "queue", counter)(MeasurementUnit.none)
+  def SCHEDULER_QUEUE_CREATE = LogMarkerToken(scheduler, "queueCreate", start)(MeasurementUnit.time.milliseconds)
+  def SCHEDULER_QUEUE_UPDATE(reason: String) =
+    LogMarkerToken(scheduler, "queueUpdate", counter, None, Map("reason" -> reason))(MeasurementUnit.none)
+  def SCHEDULER_QUEUE_WAITING_ACTIVATION(action: String) =
+    LogMarkerToken(scheduler, "queueActivation", counter, Some(action), Map("action" -> action))(MeasurementUnit.none)
   /*
    * General markers
    */
