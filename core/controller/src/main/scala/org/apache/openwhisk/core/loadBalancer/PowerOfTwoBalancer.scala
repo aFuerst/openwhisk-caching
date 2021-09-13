@@ -26,7 +26,7 @@ import akka.cluster.ClusterEvent._
 import akka.cluster.{Cluster, Member, MemberStatus}
 import akka.management.scaladsl.AkkaManagement
 import akka.management.cluster.bootstrap.ClusterBootstrap
-import akka.stream.ActorMaterializer
+// import akka.stream.ActorMaterializer
 import org.apache.kafka.clients.producer.RecordMetadata
 import pureconfig._
 import pureconfig.generic.auto._
@@ -36,7 +36,7 @@ import org.apache.openwhisk.core.connector._
 import org.apache.openwhisk.core.entity._
 // import org.apache.openwhisk.core.entity.size.SizeLong
 import org.apache.openwhisk.common.LoggingMarkers._
-import org.apache.openwhisk.core.loadBalancer.InvokerState.{Healthy, Offline, Unhealthy, Unresponsive}
+// import org.apache.openwhisk.core.loadBalancer.InvokerState.{Healthy, Offline, Unhealthy, Unresponsive}
 // import org.apache.openwhisk.core.loadBalancer.{ActivationEntry, ClusterConfig}
 import org.apache.openwhisk.core.{ConfigKeys, WhiskConfig}
 import org.apache.openwhisk.spi.SpiLoader
@@ -60,8 +60,7 @@ class PowerOfTwoBalancer(
   val invokerPoolFactory: InvokerPoolFactory,
   implicit val messagingProvider: MessagingProvider = SpiLoader.get[MessagingProvider])(
   implicit actorSystem: ActorSystem,
-  logging: Logging,
-  materializer: ActorMaterializer)
+  logging: Logging)
     extends CommonLoadBalancer(config, feedFactory, controllerInstance) {
 
   /** Build a cluster of all loadbalancers */
@@ -76,11 +75,16 @@ class PowerOfTwoBalancer(
   }
 
   override protected def emitMetrics() = {
-    super.emitMetrics()
-    MetricEmitter.emitGaugeMetric(HEALTHY_INVOKER_MANAGED, schedulingState.invokers.count(_.status == Healthy))
-    MetricEmitter.emitGaugeMetric(UNHEALTHY_INVOKER_MANAGED, schedulingState.invokers.count(_.status == Unhealthy))
-    MetricEmitter.emitGaugeMetric(UNRESPONSIVE_INVOKER_MANAGED, schedulingState.invokers.count(_.status == Unresponsive))
-    MetricEmitter.emitGaugeMetric(OFFLINE_INVOKER_MANAGED, schedulingState.invokers.count(_.status == Offline))
+    MetricEmitter.emitGaugeMetric(LOADBALANCER_ACTIVATIONS_INFLIGHT(controllerInstance), totalActivations.longValue)
+    MetricEmitter.emitGaugeMetric(
+      LOADBALANCER_MEMORY_INFLIGHT(controllerInstance, ""),
+      totalBlackBoxActivationMemory.longValue + totalManagedActivationMemory.longValue)
+    MetricEmitter.emitGaugeMetric(
+      LOADBALANCER_MEMORY_INFLIGHT(controllerInstance, "Blackbox"),
+      totalBlackBoxActivationMemory.longValue)
+    MetricEmitter.emitGaugeMetric(
+      LOADBALANCER_MEMORY_INFLIGHT(controllerInstance, "Managed"),
+      totalManagedActivationMemory.longValue)
   }
 
   /** State needed for scheduling. */
@@ -179,8 +183,7 @@ object PowerOfTwoBalancer extends LoadBalancerProvider {
 
   override def instance(whiskConfig: WhiskConfig, instance: ControllerInstanceId)(
     implicit actorSystem: ActorSystem,
-    logging: Logging,
-    materializer: ActorMaterializer): LoadBalancer = {
+    logging: Logging): LoadBalancer = {
 
     val invokerPoolFactory = new InvokerPoolFactory {
       override def createInvokerPool(
