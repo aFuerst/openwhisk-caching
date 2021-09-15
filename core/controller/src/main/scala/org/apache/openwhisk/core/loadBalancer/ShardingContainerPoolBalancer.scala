@@ -599,10 +599,14 @@ case class ClusterConfig(useClusterBootstrap: Boolean)
  * @param timeoutFactor factor to influence the timeout period for forced active acks (time-limit.std * timeoutFactor + timeoutAddon)
  * @param timeoutAddon extra time to influence the timeout period for forced active acks (time-limit.std * timeoutFactor + timeoutAddon)
  */
-case class ShardingContainerPoolBalancerConfig(managedFraction: Double,
+ case class ShardingContainerPoolBalancerConfig(invokerLoad: InvokerLoadConfig,
+                                               managedFraction: Double,
                                                blackboxFraction: Double,
                                                timeoutFactor: Int,
                                                timeoutAddon: FiniteDuration)
+
+case class InvokerLoadConfig(invokerCores: Int,
+                              c: Double) 
 
 /**
  * State kept for each activation slot until completion.

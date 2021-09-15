@@ -244,8 +244,6 @@ class ConsisntentCacheInvokerNode(_invoker: InvokerInstanceId)
  * @param _invokers all of the known invokers in the system
  */
 case class ConsistentCacheLoadBalancerState(
-  private val bounded_load : Long = 10,
-  private val c : Double = 2,
   private var _consistentHash: ConsistentHash[ConsisntentCacheInvokerNode] = HashRing.newBuilder().build(),
   private var _consistentHashList: List[ConsisntentCacheInvokerNode] = List(),
 
@@ -275,14 +273,11 @@ case class ConsistentCacheLoadBalancerState(
     {
       var node = possNode.get()
       val serverLoad = node.load.doubleValue()
-      val loadCuttoff = bounded_load*c
+      val loadCuttoff = lbConfig.invokerLoad.invokerCores * lbConfig.invokerLoad.c
       if (serverLoad <= loadCuttoff)
       {
         /* assign load to node */
         return updateTrackingData(node, activationId)
-        // node.load.incrementAndGet()
-        // startTimes += (activationId -> getMilis())
-        // return Some(node.invoker)
       }
 
       val idx = _consistentHashList.indexWhere( p => p.invoker == node.invoker)
@@ -295,9 +290,6 @@ case class ConsistentCacheLoadBalancerState(
         {
           /* assign load to node */
           return updateTrackingData(node, activationId)
-          // node.load.incrementAndGet()
-          // startTimes += (activationId -> getMilis())
-          // return Some(node.invoker)
         }
         else 
         {
@@ -310,17 +302,11 @@ case class ConsistentCacheLoadBalancerState(
           if (loadCuttoff <= r-1)
           {
             return updateTrackingData(node, activationId)
-            // node.load.incrementAndGet()
-            // startTimes += (activationId -> getMilis())
-            // return Some(node.invoker)
           }
         }
       }
       /* went around enough, give up */
       return updateTrackingData(node, activationId)
-      // node.load.incrementAndGet()
-      // startTimes += (activationId -> getMilis())
-      // return Some(node.invoker)
     }
      else None
   }
