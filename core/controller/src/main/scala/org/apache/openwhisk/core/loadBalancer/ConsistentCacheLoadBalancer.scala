@@ -40,6 +40,10 @@ import org.apache.openwhisk.spi.SpiLoader
 
 import scala.concurrent.Future
 import scala.collection.JavaConverters._
+import java.util.concurrent.atomic.AtomicInteger
+import scala.math.{min, max}
+import scala.collection.mutable
+import java.time.Instant
 
 import org.ishugaliy.allgood.consistent.hash.{HashRing, ConsistentHash}
 import org.ishugaliy.allgood.consistent.hash.node.{Node}
@@ -128,12 +132,13 @@ class ConsistentCacheLoadBalancer(
 
   /** Loadbalancer interface methods */
   override def invokerHealth(): Future[IndexedSeq[InvokerHealth]] = Future.successful(schedulingState.invokers)
+  override def clusterSize: Int = schedulingState.invokers.length
 
   /** 1. Publish a message to the loadbalancer */
   override def publish(action: ExecutableWhiskActionMetaData, msg: ActivationMessage)(
     implicit transid: TransactionId): Future[Future[Either[ActivationId, WhiskActivation]]] = {
 
-    val chosen = ConsistentCacheLoadBalancer.schedule(action.fullyQualifiedName(true), schedulingState)
+      val chosen = ConsistentCacheLoadBalancer.schedule(action.fullyQualifiedName(true), schedulingState, msg.activationId)
 
     chosen.map { invoker => 
       // MemoryLimit() and TimeLimit() return singletons - they should be fast enough to be used here
@@ -169,7 +174,7 @@ class ConsistentCacheLoadBalancer(
       Some(monitor))
 
   override protected def releaseInvoker(invoker: InvokerInstanceId, entry: ActivationEntry) = {
-    schedulingState.releaseInvoker(invoker, entry)
+      schedulingState.stateReleaseInvoker(invoker, entry)
   }
 }
 
@@ -215,8 +220,10 @@ object ConsistentCacheLoadBalancer extends LoadBalancerProvider {
    */
   def schedule(
     fqn: FullyQualifiedEntityName,
-    state: ConsistentCacheLoadBalancerState)(implicit logging: Logging, transId: TransactionId): Option[InvokerInstanceId] = {
-    state.getInvoker(fqn)
+    state: ConsistentCacheLoadBalancerState,
+    activationId: ActivationId)(implicit logging: Logging, transId: TransactionId): Option[InvokerInstanceId] = {
+      logging.info(this, s"Scheduling action '${fqn}' with TransactionId ${transId}")
+      state.getInvoker(fqn, activationId)
   }
 }
 
@@ -224,7 +231,7 @@ class ConsisntentCacheInvokerNode(_invoker: InvokerInstanceId)
   extends Node {
   
   val invoker : InvokerInstanceId = _invoker
-  var load : Long = 0
+  var load : AtomicInteger = new AtomicInteger(0)
 
   override def getKey() : String = {
     invoker.toString
@@ -242,6 +249,9 @@ case class ConsistentCacheLoadBalancerState(
   private var _consistentHash: ConsistentHash[ConsisntentCacheInvokerNode] = HashRing.newBuilder().build(),
   private var _consistentHashList: List[ConsisntentCacheInvokerNode] = List(),
 
+  private var startTimes: mutable.Map[ActivationId, Long] = mutable.Map.empty[ActivationId, Long],
+  private var runTimes: mutable.Map[FullyQualifiedEntityName, (Long, Long)] = mutable.Map.empty[FullyQualifiedEntityName, (Long, Long)], // (warm, cold)
+
   private var _invokers: IndexedSeq[InvokerHealth] = IndexedSeq.empty[InvokerHealth])(
   lbConfig: ShardingContainerPoolBalancerConfig =
     loadConfigOrThrow[ShardingContainerPoolBalancerConfig](ConfigKeys.loadbalancer))(implicit logging: Logging) {
@@ -249,15 +259,69 @@ case class ConsistentCacheLoadBalancerState(
   /** Getters for the variables, setting from the outside is only allowed through the update methods below */
   def invokers: IndexedSeq[InvokerHealth] = _invokers
 
-  def getInvoker(fqn: FullyQualifiedEntityName) : Option[InvokerInstanceId] = {
+  private def getMilis(): Long = {
+    Instant.now().toEpochMilli()
+  }
+
+  private def updateTrackingData(node: ConsisntentCacheInvokerNode, activationId: ActivationId) : Option[InvokerInstanceId] = {
+    node.load.incrementAndGet()
+    startTimes += (activationId -> getMilis())
+    return Some(node.invoker)
+  }
+
+  def getInvoker(fqn: FullyQualifiedEntityName, activationId: ActivationId) : Option[InvokerInstanceId] = {
     val possNode = _consistentHash.locate(fqn.toString)
     if (possNode.isPresent)
     {
-      val node = possNode.get()
-      /* assign load to node */
-      node.load += 1
-      Some(node.invoker)
-    } 
+      var node = possNode.get()
+      val serverLoad = node.load.doubleValue()
+      val loadCuttoff = bounded_load*c
+      if (serverLoad <= loadCuttoff)
+      {
+        /* assign load to node */
+        return updateTrackingData(node, activationId)
+        // node.load.incrementAndGet()
+        // startTimes += (activationId -> getMilis())
+        // return Some(node.invoker)
+      }
+
+      val idx = _consistentHashList.indexWhere( p => p.invoker == node.invoker)
+      val cutoff = min(_invokers.length, loadCuttoff).toInt
+
+      for (i <- 0 to cutoff)
+      {
+        node = _consistentHashList(cutoff + i)
+        if (serverLoad <= loadCuttoff)
+        {
+          /* assign load to node */
+          return updateTrackingData(node, activationId)
+          // node.load.incrementAndGet()
+          // startTimes += (activationId -> getMilis())
+          // return Some(node.invoker)
+        }
+        else 
+        {
+          var times = runTimes.getOrElse(fqn, (0L, 0L))
+          var r: Double = 0
+          if (times._2 != 0)
+          {
+            r = times._2 / times._1
+          }
+          if (loadCuttoff <= r-1)
+          {
+            return updateTrackingData(node, activationId)
+            // node.load.incrementAndGet()
+            // startTimes += (activationId -> getMilis())
+            // return Some(node.invoker)
+          }
+        }
+      }
+      /* went around enough, give up */
+      return updateTrackingData(node, activationId)
+      // node.load.incrementAndGet()
+      // startTimes += (activationId -> getMilis())
+      // return Some(node.invoker)
+    }
      else None
   }
 
@@ -283,10 +347,26 @@ case class ConsistentCacheLoadBalancerState(
       TransactionId.loadbalancer)
   }
 
-  def releaseInvoker(invoker: InvokerInstanceId, entry: ActivationEntry) = {
+  def stateReleaseInvoker(invoker: InvokerInstanceId, entry: ActivationEntry): Unit = {
     val found = _consistentHashList.find(node => node.invoker == invoker)
     found.map { invok =>
-      invok.load -= 1
+      invok.load.decrementAndGet()
+
+      val found = startTimes get entry.id
+      var times = runTimes.getOrElse(entry.fullyQualifiedEntityName, (1000000000000L, 0L))
+
+      found match {
+        case Some(startTime) => {
+          val elapsed = getMilis() - startTime
+          val warm = min(times._1, elapsed)
+          val cold = max(times._2, elapsed)
+          runTimes += (entry.fullyQualifiedEntityName -> (warm, cold))
+          logging.info(
+            this,
+            s"Updated times for ${entry.fullyQualifiedEntityName} to ${(warm, cold)}")
+        }
+        case None => logging.error(this, s"Unexpected data invoker '${invoker}' with entry '${entry}'")
+      }
 
       logging.info(
         this,

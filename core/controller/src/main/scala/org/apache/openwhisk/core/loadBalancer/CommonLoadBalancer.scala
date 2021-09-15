@@ -242,7 +242,10 @@ abstract class CommonLoadBalancer(config: WhiskConfig,
     logging.info(this, s"received result ack for '$aid'")(tid)
   }
 
-  protected def releaseInvoker(invoker: InvokerInstanceId, entry: ActivationEntry): Unit
+  protected def releaseInvoker(invoker: InvokerInstanceId, entry: ActivationEntry): Unit = 
+    {
+      logging.info(this, s"base function impl of releaseInvoker '${invoker}' for ${entry}")
+    }
 
   // Singletons for counter metrics related to completion acks
   protected val LOADBALANCER_COMPLETION_ACK_REGULAR =
@@ -288,7 +291,7 @@ abstract class CommonLoadBalancer(config: WhiskConfig,
         totalActivationMemory.add(entry.memoryLimit.toMB * (-1))
         activationsPerNamespace.get(entry.namespaceId).foreach(_.decrement())
 
-        invoker.foreach(releaseInvoker(_, entry))
+        invoker.foreach(invok => releaseInvoker(invok, entry))
 
         if (!forced) {
           entry.timeoutHandler.cancel()
