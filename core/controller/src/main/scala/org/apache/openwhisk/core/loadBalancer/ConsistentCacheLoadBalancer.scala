@@ -285,7 +285,9 @@ case class ConsistentCacheLoadBalancerState(
 
       for (i <- 0 to cutoff)
       {
-        node = _consistentHashList(cutoff + i)
+        var id = (cutoff + i) % _invokers.length
+        node = _consistentHashList(id)
+
         if (serverLoad <= loadCuttoff)
         {
           /* assign load to node */
